@@ -630,18 +630,31 @@ PAGES.home = async function (page) {
 
   // 1. REAL-TIME STATS & STATUS BAR
   const statsBar = el("div", { class: "home-stats-bar" });
-  const statBox = (icon, label, value, sub, accent) => el("div", { class: "stat" },
-    el("div", { class: "k" }, icon + " " + label),
-    el("div", { class: "v" + (accent ? " accent" : "") }, value),
-    sub ? el("div", { class: "dim small", style: "margin-top:3px" }, sub) : null
-  );
+  const statBox = (icon, label, value, sub, accent, isHero = false, onClick = null) => {
+    const box = el("div", {
+      class: "stat" + (isHero ? " stat-hero" : ""),
+      onclick: onClick,
+      style: onClick ? "cursor:pointer" : ""
+    },
+      el("div", { style: "display:flex;align-items:center;justify-content:space-between;" },
+        el("div", { class: "k" }, icon + " " + label),
+        isHero ? el("span", { class: "badge standard", style: "font-size:10px;padding:2px 7px;background:var(--gold-soft);color:var(--gold-text);border-color:var(--gold-border);font-weight:700;" }, "PRIMARY ENGINE") : null
+      ),
+      el("div", { class: "v" + (accent ? " accent" : "") }, value),
+      sub ? el("div", { class: "dim small", style: "margin-top:4px;display:flex;align-items:center;justify-content:space-between;" },
+        el("span", {}, sub),
+        isHero ? el("span", { style: "color:var(--gold-text);font-weight:600;font-size:11px;" }, "Configure →") : null
+      ) : null
+    );
+    return box;
+  };
 
   statsBar.append(
-    statBox("🤖", "Main AI Model", m.default || "(none)", `via ${m.provider || "openrouter"}`, true),
-    statBox("🛟", "Failover Backups", `${fb.length} armed`, fb.length ? "Auto failover active" : "No fallback set"),
-    statBox("🔑", "Saved API Keys", `${keysSet} configured`, "Encrypted in .env"),
-    statBox("🔌", "AI Providers", `${totalProviders} connected`, `27 built-in + ${customCount} custom`),
-    statBox("🛠️", "Capabilities", "26 tools", "Full agent permissions")
+    statBox("🤖", "Main AI Model", m.default || "(none)", `via ${m.provider || "openrouter"}`, true, true, () => showPage("model")),
+    statBox("🛟", "Failover Backups", `${fb.length} armed`, fb.length ? "Auto failover active" : "No fallback set", false, false, () => showPage("fallback")),
+    statBox("🔑", "Saved API Keys", `${keysSet} configured`, "Stored in .env", false, false, () => showPage("keys")),
+    statBox("🔌", "AI Providers", `${totalProviders} connected`, `27 built-in + ${customCount} custom`, false, false, () => showPage("providers")),
+    statBox("🛠️", "Capabilities", "26 tools", "Full agent permissions", false, false, () => showPage("tools"))
   );
 
   // 2. FEATURE HUB CARDS
@@ -843,14 +856,22 @@ PAGES.home = async function (page) {
     );
   }
 
-  page.replaceChildren(
-    systemAlertBanner,
-    el("h1", { class: "pagetitle" }, "Hermes Feature Command Center"),
+  const pageElements = [];
+  if (systemAlertBanner) {
+    pageElements.push(systemAlertBanner);
+  }
+  pageElements.push(
+    el("h1", { class: "pagetitle" },
+      el("span", { class: "title-gold" }, "Hermes Agent"),
+      " Command Center"
+    ),
     el("p", { class: "pagesub" }, "Executive overview of your AI agent stack with instant shortcuts to all core features, models, capabilities, and system tools."),
     statsBar,
     featureGrid,
     card("Quick System Shortcuts", "Direct 1-click execution of high-frequency tasks", quickBar)
   );
+
+  page.replaceChildren(...pageElements);
 };
 
 /* ---------------- MAIN AI (MODEL & PROVIDER) ---------------- */
