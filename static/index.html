@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hermes Settings</title>
 <link rel="icon" type="image/x-icon" href="/hermes_icon.ico">
-<link rel="stylesheet" href="style.css?v=chat19">
+<link rel="stylesheet" href="style.css?v=chat20">
 <script>
   (function() {
     const saved = localStorage.getItem("hermes-theme") || "light";
@@ -46,24 +46,41 @@
       <div class="deck-tag" id="deck-status">Agent Config</div>
     </div>
     <nav id="menu-list">
+      <!-- Operations -->
+      <div class="menu-category">
+        <span class="menu-category-title">Operations</span>
+      </div>
       <button class="menu-item active" data-page="home">
         <span class="mi-emoji">🏠</span> <span class="mi-text">Home</span>
       </button>
       <button class="menu-item" data-page="chat">
         <span class="mi-emoji">💬</span> <span class="mi-text">Chat</span>
       </button>
+      <button class="menu-item" data-page="terminal">
+        <span class="mi-emoji">💻</span> <span class="mi-text">Terminal</span>
+      </button>
+
+      <!-- Models & Engine -->
+      <div class="menu-category">
+        <span class="menu-category-title">Models &amp; Engine</span>
+      </div>
       <button class="menu-item" data-page="model">
         <span class="mi-emoji">🤖</span> <span class="mi-text">Main AI</span>
-      </button>
-      <button class="menu-item" data-page="providers">
-        <span class="mi-emoji">🔌</span> <span class="mi-text">Providers</span>
       </button>
       <button class="menu-item" data-page="fallback">
         <span class="mi-emoji">🛟</span> <span class="mi-text">Backup Models</span>
       </button>
+      <button class="menu-item" data-page="providers">
+        <span class="mi-emoji">🔌</span> <span class="mi-text">Providers</span>
+      </button>
       <button class="menu-item" data-page="keys">
         <span class="mi-emoji">🔑</span> <span class="mi-text">API Keys</span>
       </button>
+
+      <!-- Agent Brain & Tools -->
+      <div class="menu-category">
+        <span class="menu-category-title">Agent Brain &amp; Tools</span>
+      </div>
       <button class="menu-item" data-page="tools">
         <span class="mi-emoji">🧰</span> <span class="mi-text">Tools</span>
       </button>
@@ -73,14 +90,16 @@
       <button class="menu-item" data-page="agent">
         <span class="mi-emoji">⚙️</span> <span class="mi-text">Agent Behavior</span>
       </button>
-      <button class="menu-item" data-page="telegram">
-        <span class="mi-emoji">✈️</span> <span class="mi-text">Telegram Bot</span>
-      </button>
       <button class="menu-item" data-page="mcp">
         <span class="mi-emoji">🧩</span> <span class="mi-text">MCP Servers</span>
       </button>
-      <button class="menu-item" data-page="terminal">
-        <span class="mi-emoji">💻</span> <span class="mi-text">Terminal</span>
+
+      <!-- Gateways & System -->
+      <div class="menu-category">
+        <span class="menu-category-title">Gateways &amp; System</span>
+      </div>
+      <button class="menu-item" data-page="telegram">
+        <span class="mi-emoji">✈️</span> <span class="mi-text">Telegram Bot</span>
       </button>
       <button class="menu-item" data-page="display">
         <span class="mi-emoji">🎨</span> <span class="mi-text">Display &amp; Voice</span>
@@ -117,6 +136,6 @@
 <!-- toast messages -->
 <div id="toasts"></div>
 
-<script src="app.js?v=chat19"></script>
+<script src="app.js?v=chat20"></script>
 </body>
 </html>
