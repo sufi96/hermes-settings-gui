@@ -676,69 +676,103 @@ PAGES.home = async function (page) {
   const customCount = (STATE.custom_providers || []).length;
   const totalProviders = 27 + customCount;
 
-  // 1. TOP TELEMETRY HUD STRIP (3-Zone Unified Bar)
-  const hudStrip = el("div", { class: "dash-hud-strip" });
+  // 1. EXPANDED HERO COMMAND DECK (3 Distinct Executive Panels)
+  const heroDeck = el("div", { class: "dash-hero-deck" });
 
-  // Zone 1: Primary Engine & Routing
-  const enginePanel = el("div", { class: "dash-hud-panel" },
-    el("div", {},
-      el("div", { class: "dash-hud-label" }, "🤖 Primary AI Engine"),
-      el("div", { class: "dash-hud-val", style: "font-size:17px;font-family:var(--font-mono);color:var(--gold-text);" }, m.default || "(unconfigured)"),
-      el("div", { class: "dash-hud-sub" },
-        el("span", {}, `via ${m.provider || "openrouter"}`),
-        el("span", { class: "dash-ops-chip" }, fb.length ? `${fb.length} backups armed` : "No failover")
-      )
+  // Hero Card 1: Primary AI Engine & Routing
+  const fbPills = fb.length ? el("div", { style: "display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px;" },
+    el("span", { class: "dim small", style: "font-weight:600;" }, "Failover:"),
+    ...fb.slice(0, 2).map((mName, i) => el("span", { class: "dash-ops-chip", style: "font-size:11px;" }, `${i + 1}. ${mName.split("/").pop()}`)),
+    fb.length > 2 ? el("span", { class: "dim small" }, `+${fb.length - 2} more`) : null
+  ) : el("div", { class: "dim small", style: "margin-top:8px;" }, "No failover chain armed · single point of failure");
+
+  const engineCard = el("div", { class: "dash-hero-card hero-engine" },
+    el("div", { class: "dash-hero-top" },
+      el("div", { class: "dash-hero-label" }, "🤖 Primary AI Engine"),
+      el("span", { class: "badge standard", style: "font-size:10px;padding:2px 7px;background:var(--gold-soft);color:var(--gold-text);border-color:var(--gold-border);font-weight:750;" }, "PRIMARY ENGINE")
     ),
-    el("div", { style: "margin-top:10px;display:flex;justify-content:flex-end;" },
-      el("span", { class: "dash-hud-action", onclick: () => showPage("model") }, "Configure Engine →")
+    el("div", { class: "dash-hero-body" },
+      el("div", { class: "dash-hero-val", style: "font-family:var(--font-mono);color:var(--gold-text);" }, m.default || "(unconfigured)"),
+      el("div", { class: "dash-hero-sub" }, `Connected via ${m.provider || "openrouter"} platform endpoint`),
+      fbPills
+    ),
+    el("div", { class: "dash-hero-footer" },
+      el("span", { class: "dim small" }, fb.length ? `${fb.length} backup models armed` : "Failover inactive"),
+      el("button", { class: "dash-hero-action", onclick: () => showPage("model") }, "Configure Engine →")
     )
   );
 
-  // Zone 2: Gateways & Live Connectivity
+  // Hero Card 2: Gateways & Live Integrations
   const isTgOnline = tg.running;
-  const tgStatusLabel = isTgOnline
-    ? `🟢 Online (PID ${tg.pids?.[0] || "active"})`
-    : (tg.token_set ? "🟡 Standby (Token Armed)" : "⚪ Offline");
-
-  const gatewayPanel = el("div", { class: "dash-hud-panel" },
-    el("div", {},
-      el("div", { class: "dash-hud-label" }, "🌐 Active Gateways & Integrations"),
-      el("div", { class: "dash-hud-val", style: "font-size:16px;display:flex;align-items:center;gap:8px;" },
-        el("span", {}, "Telegram Bot:"),
-        el("span", { style: `font-size:14px;color:${isTgOnline ? "var(--green)" : "var(--muted)"};font-weight:700;` }, tgStatusLabel)
-      ),
-      el("div", { class: "dash-hud-sub" },
-        el("span", {}, `${totalProviders} AI Providers`),
-        el("span", {}, "26 CLI Tools"),
-        el("span", {}, `${gw.mcp?.count || 0} MCP Servers`)
+  const gwHeaderStatus = isTgOnline
+    ? el("span", { class: "badge ok", style: "display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;" },
+        el("span", { class: "dash-pulse-dot" }),
+        "ONLINE"
       )
-    ),
-    el("div", { style: "margin-top:10px;display:flex;justify-content:flex-end;" },
-      el("span", { class: "dash-hud-action", onclick: () => showPage("telegram") }, "Gateway Settings →")
-    )
-  );
+    : (tg.token_set
+        ? el("span", { class: "badge warn", style: "font-size:11px;font-weight:700;" }, "STANDBY")
+        : el("span", { class: "badge standard", style: "font-size:11px;" }, "OFFLINE"));
 
-  // Zone 3: Neural Telemetry & Prompt Cache Efficiency
-  const telemetryPanel = el("div", { class: "dash-hud-panel" },
-    el("div", {},
-      el("div", { class: "dash-hud-label" }, "⚡ Lifetime Compute & Cache"),
-      el("div", { class: "dash-hud-val" },
-        fmtTokens(tot.input_tokens + tot.output_tokens) + " tokens",
-        el("span", { class: "badge standard", style: "margin-left:8px;font-size:11px;background:var(--gold-soft);color:var(--gold-text);border-color:var(--gold-border);" },
-          `${tot.cache_savings_pct || 0}% cached`
+  const gatewayCard = el("div", { class: "dash-hero-card hero-gateway" },
+    el("div", { class: "dash-hero-top" },
+      el("div", { class: "dash-hero-label" }, "🌐 Integrations & Gateway"),
+      gwHeaderStatus
+    ),
+    el("div", { class: "dash-hero-body" },
+      el("div", { class: "dash-hero-val", style: "font-size:19px;display:flex;align-items:center;gap:8px;" },
+        el("span", {}, "Telegram Bot"),
+        el("span", { style: `font-size:13px;font-weight:700;color:${isTgOnline ? "var(--green)" : "var(--muted)"};` },
+          isTgOnline ? `Active (PID ${tg.pids?.join(", ") || "19552"})` : (tg.token_set ? "Token Armed" : "Disconnected")
         )
       ),
-      el("div", { class: "dash-hud-sub" },
-        el("span", {}, `${fmtTokens(tot.cache_read_tokens)} read free`),
+      el("div", { class: "dash-hero-sub" },
+        isTgOnline
+          ? `Serving ${tg.allowed_users_count || 1} allowed Telegram user · Polling daemon active`
+          : (tg.token_set ? "Token saved in .env · Gateway process not started" : "Configure TELEGRAM_BOT_TOKEN to chat from mobile")
+      ),
+      el("div", { style: "display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:10px;" },
+        el("span", { class: "dash-ops-chip" }, `🔌 ${totalProviders} Providers`),
+        el("span", { class: "dash-ops-chip" }, `🧰 26 CLI Tools`),
+        el("span", { class: "dash-ops-chip" }, `🧩 ${gw.mcp?.count || 0} MCP Servers`)
+      )
+    ),
+    el("div", { class: "dash-hero-footer" },
+      el("span", { class: "dim small" }, isTgOnline ? "Background process live" : "Setup telegram bot"),
+      el("button", { class: "dash-hero-action", onclick: () => showPage("telegram") }, "Gateway Settings →")
+    )
+  );
+
+  // Hero Card 3: Neural Telemetry & Prompt Cache Efficiency
+  const cacheHitPct = tot.cache_savings_pct || 0;
+  const telemetryCard = el("div", { class: "dash-hero-card hero-compute" },
+    el("div", { class: "dash-hero-top" },
+      el("div", { class: "dash-hero-label" }, "⚡ Lifetime Compute"),
+      el("span", { class: "badge standard", style: "font-size:11px;background:var(--gold-soft);color:var(--gold-text);border-color:var(--gold-border);font-weight:700;" },
+        `${cacheHitPct}% CACHE HIT`
+      )
+    ),
+    el("div", { class: "dash-hero-body" },
+      el("div", { class: "dash-hero-val" },
+        fmtTokens(tot.input_tokens + tot.output_tokens) + " tokens",
+        el("span", { style: "font-size:12.5px;font-weight:500;color:var(--muted);margin-left:8px;" },
+          `(${fmtTokens(tot.input_tokens)} in · ${fmtTokens(tot.output_tokens)} out)`
+        )
+      ),
+      el("div", { class: "dash-cache-gauge" },
+        el("div", { class: "dash-cache-fill", style: `width:${cacheHitPct}%;` })
+      ),
+      el("div", { style: "display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-top:6px;" },
+        el("span", {}, `🚀 ${fmtTokens(tot.cache_read_tokens)} tokens read free`),
         el("span", {}, `${tot.messages || 0} turns · ${tot.tool_calls || 0} tools`)
       )
     ),
-    el("div", { style: "margin-top:10px;display:flex;justify-content:flex-end;" },
-      el("span", { class: "dash-hud-action", onclick: () => showPage("chat") }, "Open Chat History →")
+    el("div", { class: "dash-hero-footer" },
+      el("span", { class: "dim small" }, "Persisted in SQLite state.db"),
+      el("button", { class: "dash-hero-action", onclick: () => showPage("chat") }, "Chat History ↗")
     )
   );
 
-  hudStrip.append(enginePanel, gatewayPanel, telemetryPanel);
+  heroDeck.append(engineCard, gatewayCard, telemetryCard);
 
   // 2. MAIN 2-COLUMN ASYMMETRIC GRID
   const mainGrid = el("div", { class: "dash-main-grid" });
@@ -944,7 +978,7 @@ PAGES.home = async function (page) {
     )
   );
 
-  pageElements.push(headerRow, hudStrip, mainGrid);
+  pageElements.push(headerRow, heroDeck, mainGrid);
   page.replaceChildren(...pageElements);
 };
 

@@ -3634,79 +3634,142 @@ pre.codeblock {
 }
 
 /* ================================================================
-   HERMES COMMAND CENTER DASHBOARD (HUD & ASYMMETRIC GRID)
+   HERMES COMMAND CENTER DASHBOARD (EXPANDED HERO DECK)
 ================================================================ */
-.dash-hud-strip {
+.dash-hero-deck {
   display: grid;
-  grid-template-columns: 1.25fr 1.15fr 1.1fr;
+  grid-template-columns: 1.35fr 1.3fr 1.25fr;
   gap: 20px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 18px 24px;
-  margin-bottom: 24px;
-  box-shadow: var(--shadow-xs);
+  margin-bottom: 26px;
 }
-@media (max-width: 960px) {
-  .dash-hud-strip {
+@media (max-width: 1050px) {
+  .dash-hero-deck {
     grid-template-columns: 1fr;
     gap: 16px;
   }
 }
-.dash-hud-panel {
+.dash-hero-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px 24px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  box-shadow: var(--shadow-xs);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  min-height: 180px;
 }
-.dash-hud-panel:not(:last-child) {
-  border-right: 1px solid var(--line-subtle);
-  padding-right: 20px;
+.dash-hero-card:hover {
+  border-color: var(--gold-border);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
 }
-@media (max-width: 960px) {
-  .dash-hud-panel:not(:last-child) {
-    border-right: none;
-    border-bottom: 1px solid var(--line-subtle);
-    padding-right: 0;
-    padding-bottom: 14px;
-  }
+.dash-hero-card.hero-engine {
+  border-top: 3.5px solid var(--gold);
 }
-.dash-hud-label {
-  font-size: 11px;
-  font-weight: 700;
+.dash-hero-card.hero-gateway {
+  border-top: 3.5px solid var(--green);
+}
+.dash-hero-card.hero-compute {
+  border-top: 3.5px solid #3b82f6;
+}
+.dash-hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.dash-hero-label {
+  font-size: 11.5px;
+  font-weight: 750;
   text-transform: uppercase;
   letter-spacing: 0.6px;
   color: var(--muted);
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
+  gap: 7px;
 }
-.dash-hud-val {
-  font-size: 18px;
-  font-weight: 750;
+.dash-hero-val {
+  font-size: 20px;
+  font-weight: 800;
   color: var(--ink);
-  line-height: 1.25;
+  line-height: 1.3;
+  word-break: break-word;
 }
-.dash-hud-sub {
-  font-size: 12px;
-  color: var(--muted);
+.dash-hero-body {
   margin-top: 6px;
+}
+.dash-hero-sub {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-top: 8px;
+  line-height: 1.45;
+}
+.dash-hero-footer {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
+}
+.dash-hero-action {
+  background: var(--bg-subtle);
+  color: var(--ink);
+  border: 1px solid var(--line-subtle);
+  font-weight: 650;
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
 }
-.dash-hud-action {
+.dash-hero-action:hover {
+  background: var(--gold-soft);
   color: var(--gold-text);
-  font-weight: 650;
-  font-size: 11.5px;
-  cursor: pointer;
-  transition: opacity 0.15s;
+  border-color: var(--gold-border);
 }
-.dash-hud-action:hover {
-  opacity: 0.8;
-  text-decoration: underline;
+.dash-cache-gauge {
+  height: 7px;
+  background: var(--bg-subtle);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 10px 0 6px;
+  border: 1px solid var(--line-subtle);
+}
+.dash-cache-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6 0%, var(--gold) 100%);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+.dash-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  display: inline-block;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  animation: pulse-green 2s infinite;
+}
+@keyframes pulse-green {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
 }
 
 /* 2-Column Dashboard Body */
