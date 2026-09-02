@@ -682,7 +682,11 @@ PAGES.home = async function (page) {
   // Hero Card 1: Primary AI Engine & Routing
   const fbPills = fb.length ? el("div", { style: "display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px;" },
     el("span", { class: "dim small", style: "font-weight:600;" }, "Failover:"),
-    ...fb.slice(0, 2).map((mName, i) => el("span", { class: "dash-ops-chip", style: "font-size:11px;" }, `${i + 1}. ${mName.split("/").pop()}`)),
+    ...fb.slice(0, 2).map((item, i) => {
+      const raw = typeof item === "string" ? item : (item?.model || item?.provider || "backup");
+      const name = String(raw).split("/").pop() || raw;
+      return el("span", { class: "dash-ops-chip", style: "font-size:11px;" }, `${i + 1}. ${name}`);
+    }),
     fb.length > 2 ? el("span", { class: "dim small" }, `+${fb.length - 2} more`) : null
   ) : el("div", { class: "dim small", style: "margin-top:8px;" }, "No failover chain armed · single point of failure");
 
