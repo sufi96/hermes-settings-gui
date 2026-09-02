@@ -33,7 +33,7 @@ from pathlib import Path
 
 import yaml
 
-DECK_VERSION = "1.0.0"
+DECK_VERSION = "1.0.1"
 
 # --------------------------------------------------------------------------
 # Paths

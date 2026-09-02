@@ -1,15 +1,52 @@
 # Hermes Settings GUI — Control Deck
 
-[![Release](https://img.shields.io/badge/version-1.0.0-gold.svg)](https://github.com/sufi96/hermes-settings-gui)
+[![Release](https://img.shields.io/badge/version-1.0.1-gold.svg)](https://github.com/sufi96/hermes-settings-gui)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Security](https://img.shields.io/badge/security-localhost--only-brightgreen.svg)]()
 
-A lightweight, local web interface and interactive dashboard for [Nous Research's Hermes Agent](https://github.com/NousResearch/hermes-agent). Configure models, API credentials, custom provider endpoints, fallback chains, and execute live agent sessions directly in your browser without manually editing configuration files.
+A modern, local web interface, command center, and interactive dashboard for [Nous Research's Hermes Agent](https://github.com/NousResearch/hermes-agent). Configure models, API credentials, custom provider endpoints, fallback chains, long-term memory, prompt-driven scheduled automations, and execute live agent sessions directly in your browser.
 
 ---
 
-## Highlights & Features
+## 📸 Screenshots
+
+### 🏠 Mission Control Command Center
+![Hermes Command Center](assets/screenshot_home.png)
+
+### ⚡ Automations & Prompt-Driven Scheduler (New in v1.0.1)
+![Hermes Automations Studio](assets/screenshot_automations.png)
+
+### 💬 Interactive Chat Studio
+![Hermes Interactive Chat](assets/screenshot_chat.png)
+
+---
+
+## ✨ What's New in v1.0.1
+
+### ⚡ Autonomous Automations & Scheduling Studio
+- **Prompt-Driven Scheduling:** Standard natural language prompting turns directly into scheduled autonomous tasks. Write prompts in plain English—Hermes wakes up, runs the instruction, and pushes results automatically.
+- **1-Click Starter Templates:** Pre-configured routines you can arm with a single click:
+  - 📰 **Daily AI & Tech Digest** (`0 9 * * *` · Daily at 9:00 AM to Telegram)
+  - 🩺 **Automated System Doctor** (`0 0 * * *` · Daily midnight health scan)
+  - 🧠 **Daily Memory Synthesis** (`0 22 * * *` · Nightly consolidation into `MEMORY.md`)
+  - 💾 **Nightly Workspace Snapshot** (`every 24h` · Zero-data-loss archive)
+- **Multi-Channel Delivery:** Deliver completed task reports to **Telegram Bot**, **Local Output/Logs**, or **Bot Chat Sessions**.
+- **Daemon Telemetry & Heartbeat:** Real-time tracking of the background scheduler process PID, ticker heartbeat countdown, and armed job counters.
+- **Execution Audit History:** Interactive run history drawer querying `executions.db` for execution durations, timestamps, and exit statuses.
+
+### 🧭 Redesigned Mission Control & Categorized Navigation
+- **3-Card Executive Hero Deck:** Top-tier visual telemetry for Primary AI Engine (with priority failover breadcrumbs), Live Gateway Matrix (with live Telegram bot PIDs), and Neural Telemetry (with prompt cache savings progress gauge).
+- **Categorized Sidebar:** Cleanly organized into 4 logical groups:
+  - **Operations:** Home, Chat, Automations, Terminal
+  - **Models & Engine:** Main AI, Backup Models, Providers, API Keys
+  - **Agent Brain & Tools:** Tools, Memory, Agent Behavior, MCP Servers
+  - **Gateways & System:** Telegram Bot, Display & Voice, Advanced
+- **Dedicated Memory Studio:** Real-time `MEMORY.md` markdown editor, character capacity gauge, and knowledge card browser.
+
+---
+
+## 🚀 Core Highlights
 
 ### 💬 Interactive Chat Studio
 - **Full Agent Integration:** Chat directly with Hermes Agent, executing real tools, code environments, and memory storage.
@@ -41,7 +78,7 @@ A lightweight, local web interface and interactive dashboard for [Nous Research'
 
 ---
 
-## Directory Structure
+## 📂 Directory Structure
 
 ```
 hermes-settings-gui/
@@ -51,6 +88,12 @@ hermes-settings-gui/
 │   ├── style.css          # Design system, themes, and animations
 │   ├── app.js             # Reactive interface & client routing
 │   └── hermes_icon.ico    # Application icon
+├── assets/
+│   ├── screenshot_home.png         # Command Center screenshot
+│   ├── screenshot_automations.png  # Automations Studio screenshot
+│   ├── screenshot_chat.png         # Chat Studio screenshot
+│   ├── hermes_icon.png
+│   └── hermes_icon.ico
 ├── windows/
 │   ├── Hermes Settings Windows.bat
 │   └── create_shortcut.ps1
@@ -63,7 +106,7 @@ hermes-settings-gui/
 
 ---
 
-## Getting Started
+## 🏁 Getting Started
 
 ### Prerequisites
 - Python 3.9 or higher.
@@ -99,7 +142,7 @@ python server.py --port 9000 --no-browser
 
 ---
 
-## Slash Commands in Chat
+## 💬 Slash Commands in Chat
 
 The chat interface includes native slash command support:
 
@@ -113,6 +156,6 @@ The chat interface includes native slash command support:
 
 ---
 
-## License
+## 📄 License
 
 Released under the [MIT License](LICENSE).
