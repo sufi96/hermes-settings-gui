@@ -860,14 +860,23 @@ PAGES.home = async function (page) {
   if (systemAlertBanner) {
     pageElements.push(systemAlertBanner);
   }
+
+  const makeDivider = (title, icon) => el("div", { class: "home-section-divider" },
+    el("div", { class: "divider-title" }, `${icon} ${title}`),
+    el("div", { class: "divider-line" })
+  );
+
   pageElements.push(
     el("h1", { class: "pagetitle" },
       el("span", { class: "title-gold" }, "Hermes Agent"),
       " Command Center"
     ),
     el("p", { class: "pagesub" }, "Executive overview of your AI agent stack with instant shortcuts to all core features, models, capabilities, and system tools."),
+    makeDivider("Engine Status & System Vitals", "⚡"),
     statsBar,
+    makeDivider("Feature Deck & Capabilities", "🧭"),
     featureGrid,
+    makeDivider("Quick Actions", "⚡"),
     card("Quick System Shortcuts", "Direct 1-click execution of high-frequency tasks", quickBar)
   );
 

@@ -817,6 +817,33 @@ button.ghost:hover {
   width: 100% !important;
 }
 
+/* Section Dividers on Home Page */
+.home-section-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 28px 0 16px;
+}
+.home-section-divider:first-of-type {
+  margin-top: 14px;
+}
+.home-section-divider .divider-title {
+  font-size: 11.5px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.home-section-divider .divider-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--line) 0%, var(--line-subtle) 60%, transparent 100%);
+}
+
 .home-stats-bar {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
