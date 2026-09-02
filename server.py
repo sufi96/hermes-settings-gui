@@ -1527,9 +1527,29 @@ def dashboard_overview() -> dict:
         except Exception:
             pass
 
-    # 4. Gateway check
-    gw_pid = HERMES_HOME / "gateway.pid"
-    out["gateway"]["telegram"] = gw_pid.exists()
+    # 4. Gateways & Integrations
+    try:
+        tg = telegram_status()
+        mcp_servers = cfg.get("mcp", {}).get("servers", {}) or {}
+        out["gateways"] = {
+            "telegram": {
+                "running": bool(tg.get("gateway_running")),
+                "token_set": bool(tg.get("token_set")),
+                "token_masked": tg.get("token_masked", ""),
+                "allowed_users_count": len(tg.get("allowed_users", [])),
+                "pids": tg.get("gateway_pids", []),
+            },
+            "mcp": {
+                "count": len(mcp_servers),
+                "servers": list(mcp_servers.keys()),
+            },
+            "tools": {
+                "count": 26,
+                "platform": "cli",
+            }
+        }
+    except Exception:
+        out["gateways"] = {"telegram": {"running": False, "token_set": False}, "mcp": {"count": 0}, "tools": {"count": 26}}
 
     return out
 

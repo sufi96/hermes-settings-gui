@@ -655,7 +655,7 @@ window.resumeSessionFromHome = async function(sid) {
   showPage("chat");
 };
 
-/* ---------------- HOME (EXECUTIVE SUMMARY & FEATURE SHORTCUTS) ---------------- */
+/* ---------------- HOME (MISSION CONTROL COMMAND CENTER) ---------------- */
 PAGES.home = async function (page) {
   await loadState();
   let overview = null;
@@ -667,6 +667,8 @@ PAGES.home = async function (page) {
   const tot = overview.totals || {};
   const mem = overview.memory || {};
   const skills = overview.skills || {};
+  const gw = overview.gateways || {};
+  const tg = gw.telegram || {};
   const memPct = mem.char_limit ? Math.min(100, Math.round(((mem.used_chars || 0) / mem.char_limit) * 100)) : 0;
   const m = STATE.model || {};
   const fb = STATE.fallback_chain || [];
@@ -674,207 +676,122 @@ PAGES.home = async function (page) {
   const customCount = (STATE.custom_providers || []).length;
   const totalProviders = 27 + customCount;
 
-  // 1. REAL-TIME STATS & STATUS BAR
-  const statsBar = el("div", { class: "home-stats-bar" });
-  const statBox = (icon, label, value, sub, accent, isHero = false, onClick = null) => {
-    const box = el("div", {
-      class: "stat" + (isHero ? " stat-hero" : ""),
-      onclick: onClick,
-      style: onClick ? "cursor:pointer" : ""
-    },
-      el("div", { style: "display:flex;align-items:center;justify-content:space-between;" },
-        el("div", { class: "k" }, icon + " " + label),
-        isHero ? el("span", { class: "badge standard", style: "font-size:10px;padding:2px 7px;background:var(--gold-soft);color:var(--gold-text);border-color:var(--gold-border);font-weight:700;" }, "PRIMARY ENGINE") : null
-      ),
-      el("div", { class: "v" + (accent ? " accent" : "") }, value),
-      sub ? el("div", { class: "dim small", style: "margin-top:4px;display:flex;align-items:center;justify-content:space-between;" },
-        el("span", {}, sub),
-        isHero ? el("span", { style: "color:var(--gold-text);font-weight:600;font-size:11px;" }, "Configure →") : null
-      ) : null
-    );
-    return box;
-  };
+  // 1. TOP TELEMETRY HUD STRIP (3-Zone Unified Bar)
+  const hudStrip = el("div", { class: "dash-hud-strip" });
 
-  statsBar.append(
-    statBox("🤖", "Main AI Model", m.default || "(none)", `via ${m.provider || "openrouter"}`, true, true, () => showPage("model")),
-    statBox("🛟", "Failover Backups", `${fb.length} armed`, fb.length ? "Auto failover active" : "No fallback set", false, false, () => showPage("fallback")),
-    statBox("🔑", "Saved API Keys", `${keysSet} configured`, "Stored in .env", false, false, () => showPage("keys")),
-    statBox("🔌", "AI Providers", `${totalProviders} connected`, `27 built-in + ${customCount} custom`, false, false, () => showPage("providers")),
-    statBox("🛠️", "Capabilities", "26 tools", "Full agent permissions", false, false, () => showPage("tools"))
+  // Zone 1: Primary Engine & Routing
+  const enginePanel = el("div", { class: "dash-hud-panel" },
+    el("div", {},
+      el("div", { class: "dash-hud-label" }, "🤖 Primary AI Engine"),
+      el("div", { class: "dash-hud-val", style: "font-size:17px;font-family:var(--font-mono);color:var(--gold-text);" }, m.default || "(unconfigured)"),
+      el("div", { class: "dash-hud-sub" },
+        el("span", {}, `via ${m.provider || "openrouter"}`),
+        el("span", { class: "dash-ops-chip" }, fb.length ? `${fb.length} backups armed` : "No failover")
+      )
+    ),
+    el("div", { style: "margin-top:10px;display:flex;justify-content:flex-end;" },
+      el("span", { class: "dash-hud-action", onclick: () => showPage("model") }, "Configure Engine →")
+    )
   );
 
-  // 2. FEATURE HUB CARDS
-  const featureGrid = el("div", { class: "home-feature-grid" });
+  // Zone 2: Gateways & Live Connectivity
+  const isTgOnline = tg.running;
+  const tgStatusLabel = isTgOnline
+    ? `🟢 Online (PID ${tg.pids?.[0] || "active"})`
+    : (tg.token_set ? "🟡 Standby (Token Armed)" : "⚪ Offline");
 
-  const makeFeatureCard = ({ icon, title, badge, desc, status, actionText, onAction }) => {
-    const cardEl = el("div", { class: "feature-card", onclick: onAction });
-
-    const top = el("div", { class: "feature-card-top" },
-      el("div", { class: "feature-card-title" },
-        el("div", { class: "feature-card-icon" }, icon),
-        el("span", {}, title)
+  const gatewayPanel = el("div", { class: "dash-hud-panel" },
+    el("div", {},
+      el("div", { class: "dash-hud-label" }, "🌐 Active Gateways & Integrations"),
+      el("div", { class: "dash-hud-val", style: "font-size:16px;display:flex;align-items:center;gap:8px;" },
+        el("span", {}, "Telegram Bot:"),
+        el("span", { style: `font-size:14px;color:${isTgOnline ? "var(--green)" : "var(--muted)"};font-weight:700;` }, tgStatusLabel)
       ),
-      badge ? el("span", { class: "badge standard" }, badge) : null
-    );
-
-    const descEl = el("div", { class: "feature-card-desc" }, desc);
-    const statusEl = status ? el("div", { class: "feature-card-status" },
-      el("span", { class: "dim" }, "Current status:"),
-      el("span", { style: "font-weight:600" }, status)
-    ) : null;
-
-    const foot = el("div", { class: "feature-card-foot" },
-      el("span", { class: "feature-card-action" }, actionText || "Open Feature →"),
-      el("span", { style: "font-size:16px;color:var(--gold)" }, "→")
-    );
-
-    cardEl.append(top, descEl, statusEl, foot);
-    return cardEl;
-  };
-
-  featureGrid.append(
-    makeFeatureCard({
-      icon: "💬",
-      title: "Interactive Agent Chat",
-      badge: "Core Deck",
-      desc: "Converse in real-time with the full Hermes agent. Executes terminal tools, reads codebases, leverages memory, and retains conversation history.",
-      status: `Active Engine: ${m.default ? m.default.split("/").pop() : "None"}`,
-      actionText: "Open Web Chat",
-      onAction: () => showPage("chat")
-    }),
-    makeFeatureCard({
-      icon: "🤖",
-      title: "Main AI & Diagnostics",
-      badge: "Engine",
-      desc: "Configure primary model, provider endpoints, token context window limits, model speed benchmarking, and system doctor diagnostics.",
-      status: `${m.provider || "openrouter"} (${m.default || "unconfigured"})`,
-      actionText: "Configure Main AI",
-      onAction: () => showPage("model")
-    }),
-    makeFeatureCard({
-      icon: "🛟",
-      title: "Backup Models (Failover)",
-      badge: "Fault Tolerance",
-      desc: "Automatic failover chain. If your primary AI hits rate limits or server downtime, Hermes seamlessly falls back down this priority list.",
-      status: fb.length ? `${fb.length} backup model(s) armed` : "No backups — Hermes will stop on error",
-      actionText: "Configure Failover Chain",
-      onAction: () => showPage("fallback")
-    }),
-    makeFeatureCard({
-      icon: "🔑",
-      title: "API Keys & Security Vault",
-      badge: "Credentials",
-      desc: "Securely store and manage API keys for OpenRouter, OpenAI, Anthropic, Gemini, Groq, DeepSeek, xAI, and custom servers in .env.",
-      status: `${keysSet} secret key(s) safely stored`,
-      actionText: "Manage Credentials",
-      onAction: () => showPage("keys")
-    }),
-    makeFeatureCard({
-      icon: "🔌",
-      title: "Providers & Custom Endpoints",
-      badge: "Platforms",
-      desc: "Browse 27 built-in official AI platforms, local Ollama runner, or connect custom OpenAI-compatible proxies (TokenRouter, vLLM, LM Studio).",
-      status: `27 Built-in + ${customCount} Custom`,
-      actionText: "Explore Provider Grid",
-      onAction: () => showPage("providers")
-    }),
-    makeFeatureCard({
-      icon: "🛠️",
-      title: "Agent Tools & Capabilities",
-      badge: "Permissions",
-      desc: "Granular capability controls across web search, headless browser automation, bash terminal execution, file system access, and code runners.",
-      status: "26 agent tool capabilities supported",
-      actionText: "Configure Agent Tools",
-      onAction: () => showPage("tools")
-    }),
-    makeFeatureCard({
-      icon: "🧠",
-      title: "Agent Long-Term Memory",
-      badge: "Knowledge",
-      desc: "Curate persistent memory facts in MEMORY.md, adjust character context limits, inspect indexed knowledge, and manage user profile retention.",
-      status: `${(mem.used_chars || 0).toLocaleString()} chars indexed (${memPct}% capacity)`,
-      actionText: "Open Memory Studio",
-      onAction: () => showPage("memory")
-    }),
-    makeFeatureCard({
-      icon: "⚙️",
-      title: "Agent Settings & Raw YAML",
-      badge: "Deck",
-      desc: "Fine-tune autonomous agent behavior flags, logging levels, safety permissions, and view or export the raw config.yaml manifest.",
-      status: "config.yaml verified",
-      actionText: "Open Settings Deck",
-      onAction: () => showPage("config")
-    }),
-    makeFeatureCard({
-      icon: "💻",
-      title: "Terminal & CLI Bridge",
-      badge: "Shell",
-      desc: "Browser-based command shell to run raw hermes CLI subcommands, skills, and background daemon tasks directly in your workspace.",
-      status: "Hermes CLI binary linked",
-      actionText: "Launch Terminal",
-      onAction: () => showPage("terminal")
-    }),
-    makeFeatureCard({
-      icon: "🎨",
-      title: "Display & Voice Interface",
-      badge: "Appearance",
-      desc: "Switch between modern Light and Dark color themes, customize interface spacing, and configure speech/voice synthesis output.",
-      status: `Current Theme: ${localStorage.getItem("hermes-theme") || "light"}`,
-      actionText: "Customize Display",
-      onAction: () => showPage("display")
-    }),
-    makeFeatureCard({
-      icon: "🩺",
-      title: "Hermes Doctor Diagnostics",
-      badge: "Health Scan",
-      desc: "Run an automated diagnostic check across Python runtime, SQLite state database, token files, and active network connections.",
-      status: "One-click health inspection",
-      actionText: "Run Health Scan Now",
-      onAction: async (e) => {
-        e?.stopPropagation();
-        toast("Running hermes doctor…");
-        const r = await api("/api/doctor");
-        openModal("Hermes Doctor Health Scan Report", r.stdout || r.stderr || "(no output)");
-      }
-    }),
-    makeFeatureCard({
-      icon: "💾",
-      title: "State & Config Backup",
-      badge: "Archive",
-      desc: "Create an instant timestamped archive of your full configuration, credentials, and custom endpoint definitions.",
-      status: "Zero-data-loss snapshots",
-      actionText: "Create Full Backup",
-      onAction: async (e) => {
-        e?.stopPropagation();
-        const r = await api("/api/backup", { body: {} });
-        if (r.ok) toast("Backup created successfully ✓ " + (r.stdout ? "\n" + r.stdout.split("\n")[0] : ""), "ok", 7000);
-        else toast("Backup failed: " + r.message, "err", 7000);
-      }
-    }),
-    makeFeatureCard({
-      icon: "🖥️",
-      title: "System Pre-Flight & Portability",
-      badge: STATE?.system_health?.hermes_installed ? "Ready" : "Missing",
-      desc: "Pre-flight checklist verifying Python runtime, PyYAML, Hermes CLI installation, and portability when carrying this system across machines.",
-      status: STATE?.system_health?.hermes_installed ? "All 6 Prerequisites Met" : "Hermes Agent CLI Missing",
-      actionText: "Check Requirements",
-      onAction: (e) => {
-        e?.stopPropagation();
-        openSystemHealthModal();
-      }
-    }),
+      el("div", { class: "dash-hud-sub" },
+        el("span", {}, `${totalProviders} AI Providers`),
+        el("span", {}, "26 CLI Tools"),
+        el("span", {}, `${gw.mcp?.count || 0} MCP Servers`)
+      )
+    ),
+    el("div", { style: "margin-top:10px;display:flex;justify-content:flex-end;" },
+      el("span", { class: "dash-hud-action", onclick: () => showPage("telegram") }, "Gateway Settings →")
+    )
   );
 
-  // 3. QUICK COMMANDS BAR
-  const quickBar = el("div", { class: "btnrow", style: "margin-top:10px;flex-wrap:wrap" },
+  // Zone 3: Neural Telemetry & Prompt Cache Efficiency
+  const telemetryPanel = el("div", { class: "dash-hud-panel" },
+    el("div", {},
+      el("div", { class: "dash-hud-label" }, "⚡ Lifetime Compute & Cache"),
+      el("div", { class: "dash-hud-val" },
+        fmtTokens(tot.input_tokens + tot.output_tokens) + " tokens",
+        el("span", { class: "badge standard", style: "margin-left:8px;font-size:11px;background:var(--gold-soft);color:var(--gold-text);border-color:var(--gold-border);" },
+          `${tot.cache_savings_pct || 0}% cached`
+        )
+      ),
+      el("div", { class: "dash-hud-sub" },
+        el("span", {}, `${fmtTokens(tot.cache_read_tokens)} read free`),
+        el("span", {}, `${tot.messages || 0} turns · ${tot.tool_calls || 0} tools`)
+      )
+    ),
+    el("div", { style: "margin-top:10px;display:flex;justify-content:flex-end;" },
+      el("span", { class: "dash-hud-action", onclick: () => showPage("chat") }, "Open Chat History →")
+    )
+  );
+
+  hudStrip.append(enginePanel, gatewayPanel, telemetryPanel);
+
+  // 2. MAIN 2-COLUMN ASYMMETRIC GRID
+  const mainGrid = el("div", { class: "dash-main-grid" });
+
+  // --- LEFT COLUMN: OPERATIONS & RECENT ACTIVITY ---
+  const leftCol = el("div", {});
+
+  // Panel A: Operations & Recent Conversations Table
+  const opsPanel = el("div", { class: "dash-ops-panel" });
+  const opsHeader = el("div", { class: "dash-ops-header" },
+    el("div", { class: "dash-ops-title" }, "💬 Active Operations & Recent Conversations"),
+    el("button", { class: "ghost small", style: "font-size:12px;padding:4px 8px;", onclick: () => showPage("chat") }, `All ${tot.sessions || 0} in Chat →`)
+  );
+  opsPanel.append(opsHeader);
+
+  if (recents.length) {
+    const table = el("table", { class: "dash-ops-table" });
+    for (const s of recents) {
+      const row = el("tr", { class: "dash-ops-row", onclick: () => resumeSessionFromHome(s.id) },
+        el("td", { class: "dash-ops-cell" },
+          el("div", { class: "dash-ops-session-title", title: s.title }, s.title),
+          el("div", { class: "dash-ops-meta" },
+            el("span", { class: "dash-ops-chip", style: "font-family:var(--font-mono);font-size:10.5px;" }, s.model),
+            el("span", {}, `💬 ${s.message_count} turns`),
+            s.tool_call_count > 0 ? el("span", {}, `🛠️ ${s.tool_call_count} tools`) : null,
+            el("span", {}, `⚡ ${fmtTokens(s.input_tokens + s.output_tokens)} tok`)
+          )
+        ),
+        el("td", { class: "dash-ops-cell", style: "text-align:right;white-space:nowrap;" },
+          el("div", { class: "dim small", style: "margin-bottom:6px;font-family:var(--font-mono);" }, timeAgoStr(s.started_at)),
+          el("button", {
+            class: "dash-resume-btn",
+            onclick: (e) => {
+              e.stopPropagation();
+              resumeSessionFromHome(s.id);
+            }
+          }, "▶ Resume")
+        )
+      );
+      table.append(row);
+    }
+    opsPanel.append(table);
+  } else {
+    opsPanel.append(el("div", { class: "dim", style: "padding:24px;text-align:center;font-size:13px;" }, "No recent sessions found. Click below to launch your first conversation!"));
+  }
+
+  // Panel B: Quick Action Console
+  const quickBar = el("div", { class: "btnrow", style: "flex-wrap:wrap;gap:8px;" },
     el("button", { class: "primary", onclick: () => showPage("chat") }, "💬 Start Chat"),
-    el("button", { onclick: () => openSpeedBenchmarkModal(m.provider, m.base_url, m.default) }, "⚡ Benchmark TPS & Latency"),
-    el("button", { onclick: () => showPage("model") }, "🤖 Main AI Engine"),
-    el("button", { onclick: () => showPage("providers") }, "🔌 Providers"),
-    el("button", { onclick: () => showPage("tools") }, "🛠️ Agent Tools"),
-    el("button", { onclick: () => showPage("memory") }, "🧠 Memory"),
-    el("button", { onclick: () => showPage("keys") }, "🔑 API Keys"),
-    el("button", { onclick: openSystemHealthModal }, "🖥️ System Check"),
+    el("button", { onclick: () => openSpeedBenchmarkModal(m.provider, m.base_url, m.default) }, "⚡ Benchmark Speed"),
+    el("button", { onclick: () => showPage("memory") }, "🧠 Memory Studio"),
+    el("button", { onclick: () => showPage("telegram") }, "✈️ Telegram Bot"),
+    el("button", { onclick: openSystemHealthModal }, "🖥️ Pre-Flight Check"),
     el("button", { onclick: async () => {
       toast("Running hermes doctor…");
       const r = await api("/api/doctor");
@@ -884,9 +801,104 @@ PAGES.home = async function (page) {
       const r = await api("/api/backup", { body: {} });
       if (r.ok) toast("Backup created ✓", "ok");
       else toast("Backup failed: " + r.message, "err");
-    } }, "💾 Quick Backup")
+    } }, "💾 Backup Snapshot")
   );
 
+  const consoleCard = card("Execution & Tooling Console", "Direct 1-click execution for high-frequency operations and diagnostics.", quickBar);
+  leftCol.append(opsPanel, consoleCard);
+
+  // --- RIGHT COLUMN: AGENT BRAIN, GATEWAYS & ECOSYSTEM ---
+  const rightCol = el("div", {});
+
+  // Capsule 1: Long-Term Memory
+  let meterColor = "var(--gold)";
+  if (memPct > 90) meterColor = "var(--red)";
+  else if (memPct > 75) meterColor = "var(--amber)";
+
+  const memCapsule = el("div", {
+    class: "dash-capsule",
+    style: "cursor:pointer;",
+    onclick: () => showPage("memory")
+  },
+    el("div", { class: "dash-capsule-header" },
+      el("div", { class: "dash-capsule-title" }, "🧠 Long-Term Memory"),
+      el("span", { class: "badge standard", style: "background:var(--gold-soft);color:var(--gold-text);border-color:var(--gold-border);font-weight:700;" }, mem.enabled ? "ACTIVE" : "OFF")
+    ),
+    el("div", { style: "display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px;" },
+      el("span", {}, "Storage (MEMORY.md)"),
+      el("span", { style: "font-family:var(--font-mono);font-weight:600;" }, `${(mem.used_chars || 0).toLocaleString()} / ${(mem.char_limit || 10000).toLocaleString()} chars (${memPct}%)`)
+    ),
+    el("div", { class: "home-memory-meter", style: "margin:6px 0 10px;" },
+      el("div", { class: "home-memory-fill", style: `width:${memPct}%;background:${meterColor};` })
+    ),
+    mem.snippet ? el("div", { class: "home-memory-snippet" }, `“${mem.snippet}”`) : null,
+    el("div", { style: "margin-top:12px;display:flex;justify-content:flex-end;" },
+      el("button", { class: "ghost", style: "font-size:12px;padding:3px 8px;", onclick: (e) => { e.stopPropagation(); showPage("memory"); } }, "Open Memory Studio →")
+    )
+  );
+
+  // Capsule 2: Active Gateways & Security Matrix
+  const gatewaysCapsule = el("div", { class: "dash-capsule" },
+    el("div", { class: "dash-capsule-header" },
+      el("div", { class: "dash-capsule-title" }, "🌐 Gateways & Security"),
+      el("span", { class: "badge standard" }, `${keysSet} KEYS SAVED`)
+    ),
+    // Telegram row
+    el("div", { class: "dash-gateway-row" },
+      el("div", { class: "dash-gateway-left" },
+        el("span", {}, "✈️ Telegram Bot:"),
+        el("span", { style: `font-size:11.5px;color:${isTgOnline ? "var(--green)" : "var(--muted)"};font-weight:600;` }, isTgOnline ? `Online (PID ${tg.pids?.[0]})` : "Offline")
+      ),
+      el("button", { class: "ghost small", style: "font-size:11px;padding:2px 7px;", onclick: () => showPage("telegram") }, "Manage →")
+    ),
+    // Providers row
+    el("div", { class: "dash-gateway-row" },
+      el("div", { class: "dash-gateway-left" },
+        el("span", {}, "🔌 AI Providers:"),
+        el("span", { style: "font-size:11.5px;color:var(--muted);" }, `${totalProviders} Connected`)
+      ),
+      el("button", { class: "ghost small", style: "font-size:11px;padding:2px 7px;", onclick: () => showPage("providers") }, "Providers →")
+    ),
+    // Capabilities row
+    el("div", { class: "dash-gateway-row" },
+      el("div", { class: "dash-gateway-left" },
+        el("span", {}, "🧰 Agent Tools:"),
+        el("span", { style: "font-size:11.5px;color:var(--muted);" }, "26 Tools Armed")
+      ),
+      el("button", { class: "ghost small", style: "font-size:11px;padding:2px 7px;", onclick: () => showPage("tools") }, "Tools →")
+    ),
+    // Credentials row
+    el("div", { class: "dash-gateway-row" },
+      el("div", { class: "dash-gateway-left" },
+        el("span", {}, "🔑 Vault (.env):"),
+        el("span", { style: "font-size:11.5px;color:var(--muted);" }, `${keysSet} Credentials`)
+      ),
+      el("button", { class: "ghost small", style: "font-size:11px;padding:2px 7px;", onclick: () => showPage("keys") }, "Keys →")
+    )
+  );
+
+  // Capsule 3: Installed Skills Deck
+  const skillsWrap = el("div", { class: "home-skills-wrap", style: "margin-top:6px;" });
+  for (const sk of (skills.list || [])) {
+    skillsWrap.append(el("span", { class: "home-skill-pill" }, `🧩 ${sk}`));
+  }
+  const skillsCapsule = el("div", { class: "dash-capsule" },
+    el("div", { class: "dash-capsule-header" },
+      el("div", { class: "dash-capsule-title" }, "🧩 Installed Skills"),
+      el("span", { class: "badge standard", style: "font-weight:700;" }, `${skills.count || 0} ACTIVE`)
+    ),
+    el("p", { class: "dim small", style: "margin:0 0 8px;" }, "Autonomous skill playbooks loaded in workspace:"),
+    skillsWrap,
+    el("div", { style: "margin-top:12px;display:flex;justify-content:flex-end;" },
+      el("button", { class: "ghost", style: "font-size:12px;padding:3px 8px;", onclick: () => showPage("tools") }, "Manage Toolsets →")
+    )
+  );
+
+  rightCol.append(memCapsule, gatewaysCapsule, skillsCapsule);
+  mainGrid.append(leftCol, rightCol);
+
+  // 3. ASSEMBLE PAGE
+  const pageElements = [];
   let systemAlertBanner = null;
   const h = STATE?.system_health;
   if (h && !h.hermes_installed) {
@@ -912,129 +924,27 @@ PAGES.home = async function (page) {
     );
   }
 
-  // 3. RECENT CHAT SESSIONS GRID
-  const recentGrid = el("div", { class: "home-recent-grid" });
-  if (recents.length) {
-    for (const s of recents) {
-      const card = el("div", {
-        class: "home-recent-card",
-        onclick: () => resumeSessionFromHome(s.id)
-      },
-        el("div", { class: "home-recent-top" },
-          el("span", { class: "badge standard", style: "font-weight:700;font-size:11px;" }, s.model),
-          el("span", { class: "dim small", style: "font-family:var(--font-mono);" }, timeAgoStr(s.started_at))
-        ),
-        el("div", { class: "home-recent-title", title: s.title }, s.title),
-        el("div", { class: "home-recent-meta" },
-          el("span", { class: "home-recent-chip" }, `💬 ${s.message_count} msgs`),
-          s.tool_call_count > 0 ? el("span", { class: "home-recent-chip" }, `🛠️ ${s.tool_call_count} tools`) : null,
-          el("span", { class: "home-recent-chip" }, `⚡ ${fmtTokens(s.input_tokens + s.output_tokens)} tokens`)
-        ),
-        el("button", {
-          class: "home-recent-btn",
-          onclick: (e) => {
-            e.stopPropagation();
-            resumeSessionFromHome(s.id);
-          }
-        }, "▶ Resume Chat")
-      );
-      recentGrid.append(card);
-    }
-  }
+  if (systemAlertBanner) pageElements.push(systemAlertBanner);
 
-  // 4. LIFETIME COMPUTE & TOKEN EFFICIENCY
-  const lifetimeBar = el("div", { class: "home-stats-bar" });
-  lifetimeBar.append(
-    statBox("📊", "Lifetime Tokens", fmtTokens(tot.input_tokens + tot.output_tokens), `In: ${fmtTokens(tot.input_tokens)} · Out: ${fmtTokens(tot.output_tokens)}`, false),
-    statBox("🚀", "Cache Hit Rate", `${tot.cache_savings_pct || 0}%`, `${fmtTokens(tot.cache_read_tokens)} tokens read free`, true),
-    statBox("🛠️", "Tool Executions", `${tot.tool_calls || 0} calls`, `Across ${tot.sessions || 0} agent sessions`, false),
-    statBox("💬", "Lifetime Turns", `${tot.messages || 0} turns`, "Persisted in SQLite state.db", false)
-  );
-
-  // 5. AGENT BRAIN & SKILLS
-  const brainGrid = el("div", { class: "home-brain-grid" });
-  const pct = memPct;
-  const memCard = el("div", {
-    class: "home-brain-card",
-    style: "cursor:pointer;",
-    onclick: () => showPage("memory")
-  },
+  // Top header with live status pill
+  const isAgentOk = STATE?.system_health?.hermes_installed !== false;
+  const headerRow = el("div", { style: "display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px;" },
     el("div", {},
-      el("div", { class: "home-brain-top" },
-        el("div", { class: "home-brain-title" }, "🧠 Long-Term Memory"),
-        el("span", { class: "badge standard", style: "background:var(--gold-soft);color:var(--gold-text);border-color:var(--gold-border);font-weight:700;" }, mem.enabled ? "ACTIVE" : "OFF")
+      el("h1", { class: "pagetitle", style: "margin-bottom:4px;" },
+        el("span", { class: "title-gold" }, "Hermes Agent"),
+        " Command Center"
       ),
-      el("div", { style: "display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px;" },
-        el("span", {}, "Memory Storage (MEMORY.md)"),
-        el("span", { style: "font-family:var(--font-mono);font-weight:600;" }, `${mem.used_chars || 0} / ${mem.char_limit || 10000} chars (${pct}%)`)
-      ),
-      el("div", { class: "home-memory-meter" },
-        el("div", { class: "home-memory-fill", style: `width:${pct}%` })
-      ),
-      mem.snippet ? el("div", { class: "home-memory-snippet" }, `“${mem.snippet}”`) : null
+      el("p", { class: "pagesub", style: "margin-bottom:0;" }, "Autonomous agent operations, live integration gateways, and neural telemetry.")
     ),
-    el("div", { style: "margin-top:14px;display:flex;justify-content:flex-end;" },
-      el("button", { class: "ghost", style: "font-size:12px;padding:4px 10px;", onclick: (e) => { e.stopPropagation(); showPage("memory"); } }, "Open Memory Studio →")
+    el("div", { style: "display:flex;align-items:center;gap:10px;" },
+      el("span", { class: "badge " + (isAgentOk ? "ok" : "miss"), style: "font-weight:750;font-size:12px;padding:5px 10px;" },
+        isAgentOk ? "● SYSTEM OPERATIONAL" : "⚠️ SETUP MODE"
+      ),
+      el("button", { class: "ghost small", style: "font-size:12px;padding:4px 8px;", onclick: openSystemHealthModal }, "Pre-Flight ↗")
     )
   );
 
-  const skillsWrap = el("div", { class: "home-skills-wrap" });
-  for (const sk of (skills.list || [])) {
-    skillsWrap.append(el("span", { class: "home-skill-pill" }, `🧩 ${sk}`));
-  }
-  const skillsCard = el("div", { class: "home-brain-card" },
-    el("div", {},
-      el("div", { class: "home-brain-top" },
-        el("div", { class: "home-brain-title" }, "🧩 Installed Skills"),
-        el("span", { class: "badge standard", style: "font-weight:700;" }, `${skills.count || 0} LOADED`)
-      ),
-      el("p", { class: "dim small", style: "margin:0 0 8px;" }, "Autonomous skill capabilities active in your Hermes workspace:"),
-      skillsWrap
-    ),
-    el("div", { style: "margin-top:14px;display:flex;justify-content:flex-end;" },
-      el("button", { class: "ghost", style: "font-size:12px;padding:4px 10px;", onclick: () => showPage("tools") }, "Manage Toolsets →")
-    )
-  );
-  brainGrid.append(memCard, skillsCard);
-
-  const pageElements = [];
-  if (systemAlertBanner) {
-    pageElements.push(systemAlertBanner);
-  }
-
-  const makeDivider = (title, icon) => el("div", { class: "home-section-divider" },
-    el("div", { class: "divider-title" }, `${icon} ${title}`),
-    el("div", { class: "divider-line" })
-  );
-
-  pageElements.push(
-    el("h1", { class: "pagetitle" },
-      el("span", { class: "title-gold" }, "Hermes Agent"),
-      " Command Center"
-    ),
-    el("p", { class: "pagesub" }, "Executive overview of your AI agent stack with instant shortcuts to all core features, models, capabilities, and system tools."),
-    makeDivider("Engine Status & System Vitals", "⚡"),
-    statsBar
-  );
-
-  if (recents.length) {
-    pageElements.push(
-      makeDivider("Recent Conversations & Quick Resume", "💬"),
-      recentGrid
-    );
-  }
-
-  pageElements.push(
-    makeDivider("Lifetime Compute & Token Efficiency", "📊"),
-    lifetimeBar,
-    makeDivider("Agent Memory & Skill Extensions", "🧠"),
-    brainGrid,
-    makeDivider("Feature Deck & Capabilities", "🧭"),
-    featureGrid,
-    makeDivider("Quick Actions", "⚡"),
-    card("Quick System Shortcuts", "Direct 1-click execution of high-frequency tasks", quickBar)
-  );
-
+  pageElements.push(headerRow, hudStrip, mainGrid);
   page.replaceChildren(...pageElements);
 };
 
