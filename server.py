@@ -1421,6 +1421,132 @@ def chat_stats(session_id: str | None) -> dict:
     return out
 
 
+# --------------------------------------------------------------------------
+# Update Checker & Updater
+# --------------------------------------------------------------------------
+UPDATE_CACHE: dict = {"ts": 0, "data": None}
+GITHUB_REPO: str = "sufi96/hermes-settings-gui"
+
+def check_updates(force: bool = False) -> dict:
+    """Check GitHub repository for newer release tags or commits on main."""
+    now = time.time()
+    if not force and UPDATE_CACHE["data"] and (now - UPDATE_CACHE["ts"]) < 180:
+        return UPDATE_CACHE["data"]
+
+    repo_dir = str(Path(__file__).resolve().parent)
+    current_commit = ""
+    try:
+        r = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5, cwd=repo_dir)
+        if r.returncode == 0:
+            current_commit = r.stdout.strip()
+    except Exception:
+        pass
+
+    latest_commit = ""
+    commit_msg = ""
+    commit_date = ""
+    latest_tag = ""
+    release_url = f"https://github.com/{GITHUB_REPO}"
+
+    # 1. Fetch latest commit on main
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{GITHUB_REPO}/commits/main",
+            headers={"User-Agent": "Hermes-Settings-GUI", "Accept": "application/vnd.github.v3+json"}
+        )
+        with urllib.request.urlopen(req, timeout=8) as res:
+            cdata = json.loads(res.read().decode("utf-8"))
+            latest_commit = cdata.get("sha", "")
+            commit_msg = cdata.get("commit", {}).get("message", "").split("\n")[0]
+            commit_date = cdata.get("commit", {}).get("author", {}).get("date", "")
+    except Exception as e:
+        commit_msg = f"Check failed: {e}"
+
+    # 2. Fetch latest tag
+    try:
+        treq = urllib.request.Request(
+            f"https://api.github.com/repos/{GITHUB_REPO}/tags",
+            headers={"User-Agent": "Hermes-Settings-GUI", "Accept": "application/vnd.github.v3+json"}
+        )
+        with urllib.request.urlopen(treq, timeout=8) as res:
+            tdata = json.loads(res.read().decode("utf-8"))
+            if tdata and isinstance(tdata, list):
+                latest_tag = tdata[0].get("name", "")
+                release_url = f"https://github.com/{GITHUB_REPO}/releases/tag/{latest_tag}"
+    except Exception:
+        pass
+
+    # Compare version or commit
+    has_update = False
+    if latest_tag:
+        raw_remote_ver = latest_tag.lstrip("v").strip()
+        raw_local_ver = DECK_VERSION.lstrip("v").strip()
+        if raw_remote_ver != raw_local_ver:
+            try:
+                r_parts = [int(x) for x in re.findall(r"\d+", raw_remote_ver)]
+                l_parts = [int(x) for x in re.findall(r"\d+", raw_local_ver)]
+                has_update = r_parts > l_parts
+            except Exception:
+                has_update = raw_remote_ver != raw_local_ver
+
+    # If no tag difference, check if remote main commit differs from local HEAD
+    if not has_update and current_commit and latest_commit:
+        has_update = not current_commit.startswith(latest_commit[:10])
+
+    result = {
+        "ok": True,
+        "current_version": DECK_VERSION,
+        "current_commit": current_commit[:7] if current_commit else "",
+        "latest_version": latest_tag or (f"commit {latest_commit[:7]}" if latest_commit else ""),
+        "latest_commit": latest_commit[:7] if latest_commit else "",
+        "commit_message": commit_msg,
+        "commit_date": commit_date,
+        "has_update": bool(has_update),
+        "release_url": release_url,
+        "repo_url": f"https://github.com/{GITHUB_REPO}",
+        "checked_at": now,
+    }
+    UPDATE_CACHE["ts"] = now
+    UPDATE_CACHE["data"] = result
+    return result
+
+
+def apply_update() -> dict:
+    """Run git pull origin main and schedule server restart."""
+    repo_dir = str(Path(__file__).resolve().parent)
+    try:
+        r = subprocess.run(
+            ["git", "pull", "origin", "main"],
+            capture_output=True,
+            text=True,
+            timeout=40,
+            cwd=repo_dir
+        )
+        if r.returncode == 0:
+            out = r.stdout.strip()
+
+            def _restart():
+                time.sleep(1.2)
+                try:
+                    kwargs = {}
+                    if os.name == "nt":
+                        flags = 0
+                        if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+                            flags |= subprocess.CREATE_NEW_PROCESS_GROUP
+                        if hasattr(subprocess, "DETACHED_PROCESS"):
+                            flags |= subprocess.DETACHED_PROCESS
+                        if flags:
+                            kwargs["creationflags"] = flags
+                    subprocess.Popen([sys.executable] + sys.argv, cwd=repo_dir, **kwargs)
+                    os._exit(0)
+                except Exception:
+                    pass
+
+            threading.Thread(target=_restart, daemon=True).start()
+            return {"ok": True, "output": out, "restarted": True}
+        return {"ok": False, "message": (r.stderr or r.stdout or f"exit {r.returncode}").strip()}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1580,6 +1706,9 @@ class Handler(BaseHTTPRequestHandler):
                     files.append({"name": p.name, "path": str(p),
                                   "size_kb": round(p.stat().st_size / 1024), "mtime": p.stat().st_mtime})
             self._json({"backups": files[:20]})
+        elif path == "/api/update/check":
+            force = self._qs().get("force", "") == "1"
+            self._json(check_updates(force=force))
         else:
             self._send(404, b'{"error": "not found"}')
 
@@ -1958,6 +2087,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/chat/new":
                 CHAT_STATE["session_id"] = None
                 self._json({"ok": True})
+            elif path == "/api/update/apply":
+                self._json(apply_update())
             elif path == "/api/backup":
                 self._json(run_hermes("backup", timeout=300))
             else:

@@ -3909,6 +3909,113 @@ function initMenuCollapse() {
   };
 }
 
+/* ---------------- update checker ---------------- */
+let CURRENT_UPDATE_INFO = null;
+
+function openUpdateModal(info) {
+  const backdrop = el("div", { class: "modal-backdrop" });
+  const modal = el("div", { class: "modal-card update-modal" });
+
+  const titleRow = el("div", { class: "modal-title-row" },
+    el("div", { class: "modal-title" }, "🚀 Software Update Available"),
+    el("button", { class: "modal-close-btn", title: "Close", onclick: () => backdrop.remove() }, "✕")
+  );
+
+  const infoCard = el("div", { class: "update-info-card" },
+    el("div", { class: "update-ver-row" },
+      el("span", {}, "Current Version:"),
+      el("span", { class: "update-ver-tag current" }, `v${info.current_version || "1.0.0"} (${info.current_commit || "local"})`)
+    ),
+    el("div", { class: "update-ver-row" },
+      el("span", {}, "Latest on GitHub:"),
+      el("span", { class: "update-ver-tag latest" }, `${info.latest_version || "latest"} (${info.latest_commit || "remote"})`)
+    )
+  );
+
+  let commitBox = null;
+  if (info.commit_message) {
+    commitBox = el("div", { class: "update-commit-box" },
+      el("span", { class: "update-commit-sha" }, info.latest_commit ? `[${info.latest_commit}]` : ""),
+      el("span", {}, info.commit_message)
+    );
+  }
+
+  const desc = el("p", { class: "compress-desc" },
+    "Updates will be pulled directly from your GitHub repository (sufi96/hermes-settings-gui). The server will automatically apply changes and refresh."
+  );
+
+  const statusArea = el("div", { class: "update-status-area", hidden: true });
+
+  const cancelBtn = el("button", { class: "hud-btn", onclick: () => backdrop.remove() }, "Cancel");
+  const applyBtn = el("button", { class: "compress-submit-btn" }, "Update Now");
+
+  applyBtn.onclick = async () => {
+    applyBtn.disabled = true;
+    cancelBtn.disabled = true;
+
+    statusArea.hidden = false;
+    statusArea.className = "update-status-area";
+    statusArea.replaceChildren(
+      el("span", { class: "compress-spinner" }),
+      el("span", {}, " Pulling update from GitHub (git pull origin main)…")
+    );
+
+    try {
+      const r = await api("/api/update/apply", { body: {} });
+      if (r.ok) {
+        statusArea.className = "update-status-area success";
+        statusArea.innerHTML = "<b>✓ Update applied successfully!</b><p style='margin:4px 0 0;font-size:12px;'>Restarting server and reloading in 2 seconds…</p>";
+        cancelBtn.remove();
+        applyBtn.remove();
+        setTimeout(() => {
+          window.location.reload();
+        }, 2200);
+      } else {
+        statusArea.className = "update-status-area error";
+        statusArea.textContent = "✕ Update failed: " + (r.message || "Unknown error");
+        applyBtn.disabled = false;
+        cancelBtn.disabled = false;
+      }
+    } catch (err) {
+      statusArea.className = "update-status-area error";
+      statusArea.textContent = "✕ Error: " + err.message;
+      applyBtn.disabled = false;
+      cancelBtn.disabled = false;
+    }
+  };
+
+  const actions = el("div", { class: "modal-actions-row" }, cancelBtn, applyBtn);
+
+  modal.append(titleRow, infoCard, commitBox || "", desc, statusArea, actions);
+  backdrop.append(modal);
+  document.body.append(backdrop);
+}
+
+async function initUpdateChecker() {
+  const container = document.getElementById("update-notification");
+  if (!container) return;
+
+  try {
+    const r = await api("/api/update/check");
+    if (r.ok && r.has_update) {
+      CURRENT_UPDATE_INFO = r;
+      const banner = el("div", {
+        class: "update-alert-banner",
+        title: "Click to view and install update",
+        onclick: () => openUpdateModal(r)
+      },
+        el("span", { class: "update-pulse-dot" }),
+        el("span", { class: "update-msg" }, `Update: ${r.latest_version || "available"}`),
+        el("button", { class: "update-pill-btn" }, "Update")
+      );
+      container.replaceChildren(banner);
+      container.hidden = false;
+    } else {
+      container.hidden = true;
+    }
+  } catch {}
+}
+
 /* ---------------- boot ---------------- */
 (async function boot() {
   if (!TOKEN) {
@@ -3923,4 +4030,5 @@ function initMenuCollapse() {
   });
   await loadState();
   showPage("home");
+  initUpdateChecker();
 })();

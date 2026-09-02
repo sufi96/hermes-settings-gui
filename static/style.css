@@ -3208,5 +3208,135 @@ pre.codeblock {
   cursor: not-allowed;
 }
 
+/* ================================================================
+   UPDATE NOTIFICATION & MODAL
+================================================================ */
+.update-notification {
+  margin-top: 8px;
+}
+.update-alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(217, 119, 6, 0.12);
+  border: 1px solid var(--gold-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  font-size: 11.5px;
+  color: var(--gold-text);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  animation: fadeIn 0.3s ease;
+}
+.update-alert-banner:hover {
+  background: rgba(217, 119, 6, 0.22);
+  border-color: var(--gold);
+}
+.update-pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gold);
+  flex: none;
+  animation: pulseGold 1.5s infinite;
+}
+@keyframes pulseGold {
+  0% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.7); }
+  70% { box-shadow: 0 0 0 6px rgba(217, 119, 6, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0); }
+}
+.update-msg {
+  flex: 1;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.update-pill-btn {
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 4px;
+  background: var(--gold);
+  color: #000;
+  border: none;
+  cursor: pointer;
+  flex: none;
+}
+.update-pill-btn:hover {
+  filter: brightness(1.1);
+}
+
+.update-modal {
+  max-width: 460px;
+}
+.update-info-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--line-subtle);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.update-ver-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.update-ver-tag {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.update-ver-tag.current {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.update-ver-tag.latest {
+  background: var(--gold-soft);
+  border: 1px solid var(--gold-border);
+  color: var(--gold-text);
+}
+.update-commit-box {
+  background: var(--card);
+  border: 1px solid var(--line-subtle);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--ink);
+  line-height: 1.4;
+}
+.update-commit-sha {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--gold-text);
+  margin-right: 6px;
+  font-weight: 600;
+}
+.update-status-area {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--line-subtle);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.update-status-area.success {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #10b981;
+}
+.update-status-area.error {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+
 
 
