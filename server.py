@@ -1490,8 +1490,18 @@ def check_updates(force: bool = False) -> dict:
                 has_update = raw_remote_ver != raw_local_ver
 
     # If no tag difference, check if remote main commit differs from local HEAD
-    if not has_update and current_commit and latest_commit:
-        has_update = not current_commit.startswith(latest_commit[:10])
+    if not has_update and current_commit and latest_commit and not current_commit.startswith(latest_commit[:10]):
+        try:
+            r = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", latest_commit, "HEAD"],
+                cwd=repo_dir,
+                capture_output=True,
+                timeout=5
+            )
+            # If latest_commit is already an ancestor of HEAD, local is ahead or equal -> no update needed
+            has_update = r.returncode != 0
+        except Exception:
+            has_update = True
 
     result = {
         "ok": True,
