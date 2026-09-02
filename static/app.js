@@ -613,7 +613,8 @@ async function showPage(name) {
   page.classList.toggle("chat-page", name === "chat");
   page.classList.toggle("providers-page", name === "providers");
   page.classList.toggle("memory-page", name === "memory");
-  page.classList.toggle("wide-page", name === "home" || name === "providers" || name === "chat" || name === "tools" || name === "memory");
+  page.classList.toggle("automations-page", name === "automations");
+  page.classList.toggle("wide-page", name === "home" || name === "providers" || name === "chat" || name === "tools" || name === "memory" || name === "automations");
   page.replaceChildren(el("div", { class: "loading" }, "Loading…"));
   if (PAGES[name]) {
     try {
@@ -828,6 +829,7 @@ PAGES.home = async function (page) {
     el("button", { class: "primary", onclick: () => showPage("chat") }, "💬 Start Chat"),
     el("button", { onclick: () => openSpeedBenchmarkModal(m.provider, m.base_url, m.default) }, "⚡ Benchmark Speed"),
     el("button", { onclick: () => showPage("memory") }, "🧠 Memory Studio"),
+    el("button", { onclick: () => showPage("automations") }, "⏰ Automations"),
     el("button", { onclick: () => showPage("telegram") }, "✈️ Telegram Bot"),
     el("button", { onclick: openSystemHealthModal }, "🖥️ Pre-Flight Check"),
     el("button", { onclick: async () => {
@@ -888,6 +890,14 @@ PAGES.home = async function (page) {
         el("span", { style: `font-size:11.5px;color:${isTgOnline ? "var(--green)" : "var(--muted)"};font-weight:600;` }, isTgOnline ? `Online (PID ${tg.pids?.[0]})` : "Offline")
       ),
       el("button", { class: "ghost small", style: "font-size:11px;padding:2px 7px;", onclick: () => showPage("telegram") }, "Manage →")
+    ),
+    // Automations row
+    el("div", { class: "dash-gateway-row" },
+      el("div", { class: "dash-gateway-left" },
+        el("span", {}, "⏰ Automations:"),
+        el("span", { style: "font-size:11.5px;color:var(--muted);" }, `${gw.cron?.active_jobs || 0} Active / ${gw.cron?.total_jobs || 0} Jobs`)
+      ),
+      el("button", { class: "ghost small", style: "font-size:11px;padding:2px 7px;", onclick: () => showPage("automations") }, "Cron →")
     ),
     // Providers row
     el("div", { class: "dash-gateway-row" },
@@ -2672,6 +2682,442 @@ PAGES.terminal = async function (page) {
           toast(r.ok ? "Saved ✓" : "Could not save: " + r.message, r.ok ? "ok" : "err");
         })),
   );
+};
+
+/* ================================================================
+   AUTOMATIONS & SCHEDULER STUDIO
+================================================================ */
+PAGES.automations = async function (page) {
+  let jobsData = { jobs: [], status: {} };
+  try {
+    jobsData = await api("/api/cron/jobs");
+  } catch (err) {
+    console.warn("Could not load cron jobs:", err);
+  }
+
+  const jobs = jobsData.jobs || [];
+  const st = jobsData.status || {};
+  const isRunning = st.gateway_running;
+
+  // 1. TOP HEADER & VITALS BANNER
+  const heroBanner = el("div", { class: "auto-hero-banner" },
+    el("div", { class: "auto-hero-left" },
+      el("div", { class: "auto-hero-title" },
+        el("span", {}, "⚡ Autonomous Automations & Scheduling"),
+        el("span", { class: "badge " + (isRunning ? "ok" : "warn"), style: "font-size:11px;font-weight:750;" },
+          isRunning ? "● SCHEDULER ACTIVE" : "⚠️ GATEWAY STANDBY"
+        )
+      ),
+      el("div", { class: "auto-hero-sub" },
+        "Standard natural prompting turns directly into scheduled autonomous tasks. Hermes wakes up, executes your instruction, reads files or searches the web, and pushes results to Telegram or local logs."
+      )
+    ),
+    el("div", { class: "auto-hero-metrics" },
+      el("div", { class: "auto-metric-pill" },
+        el("div", { class: "auto-metric-label" }, "Gateway Daemon"),
+        el("div", { class: "auto-metric-val", style: `color:${isRunning ? "var(--green)" : "var(--muted)"};` },
+          isRunning ? `Online (PID ${st.gateway_pids?.[0] || "active"})` : "Stopped"
+        )
+      ),
+      el("div", { class: "auto-metric-pill" },
+        el("div", { class: "auto-metric-label" }, "Heartbeat"),
+        el("div", { class: "auto-metric-val", style: "font-family:var(--font-mono);" },
+          st.heartbeat_ago_seconds !== null && st.heartbeat_ago_seconds !== undefined
+            ? `${st.heartbeat_ago_seconds}s ago`
+            : "Standby"
+        )
+      ),
+      el("div", { class: "auto-metric-pill" },
+        el("div", { class: "auto-metric-label" }, "Armed Jobs"),
+        el("div", { class: "auto-metric-val", style: "color:var(--gold-text);" },
+          `${st.active_jobs || 0} / ${st.total_jobs || 0} Active`
+        )
+      )
+    )
+  );
+
+  // 2. STARTER INSPIRATION TEMPLATES
+  const templatesDeck = el("div", { class: "auto-templates-deck" },
+    el("div", { style: "display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;" },
+      el("div", { style: "font-size:13px;font-weight:750;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);" },
+        "💡 1-Click Prompt Inspiration Templates"
+      ),
+      el("span", { class: "dim small" }, "Click any card to pre-fill creator")
+    )
+  );
+
+  const TEMPLATES = [
+    {
+      title: "Daily AI & Tech Digest",
+      icon: "📰",
+      schedule: "0 9 * * *",
+      scheduleLabel: "Daily 9:00 AM",
+      name: "Daily AI Digest",
+      deliver: "telegram",
+      prompt: "Search the web for top 5 breaking artificial intelligence research papers, open-source model releases, and tech breakthroughs in the last 24 hours. Synthesize in markdown."
+    },
+    {
+      title: "Automated System Doctor",
+      icon: "🩺",
+      schedule: "0 0 * * *",
+      scheduleLabel: "Daily Midnight",
+      name: "Midnight System Diagnostic",
+      deliver: "local",
+      prompt: "Run full automated health scan, inspect Python runtime, disk storage capacity, SQLite databases, and alert if any anomalies or errors are discovered."
+    },
+    {
+      title: "Daily Memory Digest",
+      icon: "🧠",
+      schedule: "0 22 * * *",
+      scheduleLabel: "Daily 10:00 PM",
+      name: "Memory Synthesis & Digest",
+      deliver: "local",
+      prompt: "Review recent conversation transcripts from today, extract recurring user preferences, projects, and key context, and consolidate updates into MEMORY.md."
+    },
+    {
+      title: "Nightly Workspace Snapshot",
+      icon: "💾",
+      schedule: "every 24h",
+      scheduleLabel: "Every 24 Hours",
+      name: "Nightly Workspace Backup",
+      deliver: "local",
+      prompt: "Create a complete zero-data-loss archive snapshot of Hermes configuration manifests, API credential hashes, and memory state files."
+    }
+  ];
+
+  const templatesGrid = el("div", { class: "auto-templates-grid" });
+  for (const t of TEMPLATES) {
+    const cardEl = el("div", { class: "auto-template-card" },
+      el("div", {},
+        el("div", { class: "auto-template-header" },
+          el("div", { class: "auto-template-title" }, `${t.icon} ${t.title}`),
+          el("span", { class: "badge standard", style: "font-size:10px;" }, t.scheduleLabel)
+        ),
+        el("div", { class: "auto-template-desc" }, t.prompt)
+      ),
+      el("div", { class: "auto-template-foot" },
+        el("span", { class: "dim" }, `Target: ${t.deliver === "telegram" ? "✈️ Telegram" : "💻 Local"}`),
+        el("span", { style: "color:var(--gold-text);font-weight:700;" }, "Use Template ↗")
+      )
+    );
+
+    cardEl.onclick = () => {
+      promptInput.value = t.prompt;
+      nameInput.value = t.name;
+      scheduleInput.value = t.schedule;
+      deliverSelect.value = t.deliver;
+      updatePresetPills(t.schedule);
+      creatorCard.scrollIntoView({ behavior: "smooth", block: "start" });
+      toast(`Loaded "${t.title}" template! Fill or tweak and click Arm.`);
+    };
+
+    templatesGrid.append(cardEl);
+  }
+  templatesDeck.append(templatesGrid);
+
+  // 3. MAGIC PROMPT CREATOR CARD
+  const creatorCard = el("div", { class: "auto-creator-form" });
+  const promptInput = el("textarea", {
+    class: "auto-prompt-area",
+    placeholder: 'Tell Hermes what to execute autonomously (e.g. "Search web for news on Groq and open weights models, format a 3-bullet summary, and push to Telegram")'
+  });
+
+  const nameInput = el("input", {
+    type: "text",
+    placeholder: "e.g. Daily AI Digest",
+    style: "width:100%;"
+  });
+
+  const scheduleInput = el("input", {
+    type: "text",
+    placeholder: "e.g. every 2h, 30m, 0 9 * * *",
+    style: "width:100%;font-family:var(--font-mono);"
+  });
+
+  const deliverSelect = el("select", { style: "width:100%;" },
+    el("option", { value: "telegram" }, "✈️ Telegram Bot (Push Notification)"),
+    el("option", { value: "local" }, "💻 Local Output (Console & Logs)"),
+    el("option", { value: "bot-chat" }, "💬 Bot Chat (Profile Canonical Chat)"),
+    el("option", { value: "discord" }, "👾 Discord Gateway"),
+    el("option", { value: "origin" }, "🔄 Origin Session")
+  );
+
+  // Schedule preset pills
+  const presets = [
+    { label: "Every 30m", val: "30m" },
+    { label: "Every 1h", val: "every 1h" },
+    { label: "Every 2h", val: "every 2h" },
+    { label: "Every 6h", val: "every 6h" },
+    { label: "Daily 9 AM", val: "0 9 * * *" },
+    { label: "Daily Midnight", val: "0 0 * * *" },
+    { label: "Mon 8 AM", val: "0 8 * * 1" },
+  ];
+
+  const presetContainer = el("div", { class: "auto-preset-pills" });
+  function updatePresetPills(currentVal) {
+    presetContainer.querySelectorAll(".auto-preset-pill").forEach(p => {
+      p.classList.toggle("selected", p.dataset.val === currentVal);
+    });
+  }
+
+  for (const pr of presets) {
+    const pEl = el("button", {
+      type: "button",
+      class: "auto-preset-pill",
+      "data-val": pr.val,
+      onclick: (e) => {
+        e.preventDefault();
+        scheduleInput.value = pr.val;
+        updatePresetPills(pr.val);
+      }
+    }, pr.label);
+    presetContainer.append(pEl);
+  }
+
+  scheduleInput.oninput = () => updatePresetPills(scheduleInput.value);
+
+  // Default to Telegram or local
+  if (STATE.env_entries?.some(e => e.key === "TELEGRAM_BOT_TOKEN" && e.set)) {
+    deliverSelect.value = "telegram";
+  } else {
+    deliverSelect.value = "local";
+  }
+
+  const submitBtn = el("button", { class: "primary", style: "padding:10px 22px;font-size:14px;font-weight:700;" }, "⚡ Arm Scheduled Automation");
+  submitBtn.onclick = async () => {
+    const prompt = promptInput.value.trim();
+    const schedule = scheduleInput.value.trim();
+    const name = nameInput.value.trim();
+    const deliver = deliverSelect.value;
+
+    if (!schedule) {
+      toast("Please specify a schedule (e.g. 'every 2h' or '0 9 * * *')", "err");
+      scheduleInput.focus();
+      return;
+    }
+    if (!prompt) {
+      toast("Please enter what task Hermes should execute", "err");
+      promptInput.focus();
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Arming schedule…";
+
+    try {
+      const res = await api("/api/cron/create", {
+        body: { schedule, prompt, name, deliver }
+      });
+      if (res.ok) {
+        toast("Automation armed successfully! ✓", "ok", 6000);
+        promptInput.value = "";
+        nameInput.value = "";
+        scheduleInput.value = "";
+        showPage("automations");
+      } else {
+        toast("Could not create automation: " + (res.stderr || res.message || "Unknown error"), "err", 8000);
+      }
+    } catch (err) {
+      toast("Error: " + err.message, "err");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "⚡ Arm Scheduled Automation";
+    }
+  };
+
+  creatorCard.append(
+    el("div", { class: "auto-creator-header" },
+      el("div", { class: "auto-creator-title" }, "🪄 Prompt to Scheduled Automation"),
+      el("span", { class: "badge standard", style: "font-size:11px;" }, "NATURAL PROMPTING")
+    ),
+    el("div", { style: "margin-bottom:6px;" },
+      el("label", { class: "auto-field-label" }, "1. Task Instructions (Standard Prompt)"),
+      el("p", { class: "dim small", style: "margin:2px 0 8px;" }, "Write the prompt in regular English just as you would talk to Hermes:"),
+      promptInput
+    ),
+    el("div", { class: "auto-field-grid" },
+      el("div", { class: "auto-field-group" },
+        el("label", { class: "auto-field-label" }, "2. Schedule Frequency"),
+        scheduleInput,
+        presetContainer
+      ),
+      el("div", { class: "auto-field-group" },
+        el("label", { class: "auto-field-label" }, "3. Job Name (Optional)"),
+        nameInput,
+        el("span", { class: "dim small", style: "margin-top:4px;" }, "Friendly identifier for this routine")
+      ),
+      el("div", { class: "auto-field-group" },
+        el("label", { class: "auto-field-label" }, "4. Delivery Destination"),
+        deliverSelect,
+        el("span", { class: "dim small", style: "margin-top:4px;" }, "Where Hermes pushes completion reports")
+      )
+    ),
+    el("div", { style: "margin-top:20px;display:flex;align-items:center;justify-content:flex-end;gap:12px;" },
+      el("button", {
+        type: "button",
+        class: "ghost",
+        onclick: () => {
+          promptInput.value = "";
+          nameInput.value = "";
+          scheduleInput.value = "";
+          updatePresetPills("");
+        }
+      }, "Clear"),
+      submitBtn
+    )
+  );
+
+  // 4. ACTIVE SCHEDULED JOBS DECK
+  const jobsSection = el("div", { style: "margin-bottom:28px;" });
+  const jobsHeader = el("div", { style: "display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;" },
+    el("h2", { style: "font-size:17px;font-weight:750;margin:0;display:flex;align-items:center;gap:8px;" },
+      "⏰ Active Scheduled Automations",
+      el("span", { class: "badge standard", style: "font-weight:700;" }, `${jobs.length} JOBS`)
+    ),
+    el("button", { class: "ghost small", onclick: () => showPage("automations") }, "↺ Refresh")
+  );
+  jobsSection.append(jobsHeader);
+
+  if (!jobs.length) {
+    jobsSection.append(
+      el("div", { class: "card", style: "text-align:center;padding:36px 20px;" },
+        el("div", { style: "font-size:36px;margin-bottom:8px;" }, "⏰"),
+        el("div", { style: "font-size:16px;font-weight:700;margin-bottom:6px;" }, "No scheduled automations armed"),
+        el("p", { class: "dim", style: "max-width:500px;margin:0 auto 16px;font-size:13px;" },
+          "Use the prompt creator above or click one of the starter templates to schedule recurring web searches, diagnostics, digests, or custom AI routines."
+        ),
+        el("button", { class: "primary", onclick: () => creatorCard.scrollIntoView({ behavior: "smooth" }) }, "Create First Automation ↗")
+      )
+    );
+  } else {
+    const jobsGrid = el("div", { class: "auto-jobs-grid" });
+    for (const job of jobs) {
+      const isPaused = job.state === "paused" || !job.enabled;
+      const jobCard = el("div", { class: "auto-job-card" + (isPaused ? " paused" : "") });
+
+      // Top row
+      const topRow = el("div", { class: "auto-job-top" },
+        el("div", {},
+          el("div", { class: "auto-job-name" }, job.name || "Untitled Routine"),
+          el("div", { class: "auto-job-id" }, `ID: ${job.id}`)
+        ),
+        el("span", { class: "badge " + (isPaused ? "warn" : "ok"), style: "font-size:10.5px;font-weight:750;" },
+          isPaused ? "PAUSED" : "ACTIVE"
+        )
+      );
+
+      // Prompt Box
+      const promptBox = el("div", { class: "auto-job-prompt-box", title: job.prompt },
+        job.prompt || "(No prompt instruction)"
+      );
+
+      // Meta chips
+      const metaRow = el("div", { class: "auto-job-meta-row" },
+        el("span", { class: "dash-ops-chip", style: "font-weight:650;" }, `⏰ ${job.schedule_display || job.schedule?.display || "Custom"}`),
+        el("span", { class: "dash-ops-chip" }, `🎯 Deliver: ${job.deliver || "local"}`),
+        job.model_snapshot ? el("span", { class: "dash-ops-chip", style: "font-family:var(--font-mono);font-size:10.5px;" }, job.model_snapshot.split("/").pop()) : null,
+        job.next_run_at ? el("span", { class: "dash-ops-chip", style: "color:var(--gold-text);" }, `⏳ Next: ${timeAgoStr(job.next_run_at)}`) : null
+      );
+
+      // Actions row
+      const actionsRow = el("div", { class: "auto-job-actions" },
+        el("div", { class: "dim small" },
+          job.last_run_at ? `Last run: ${timeAgoStr(job.last_run_at)} (${job.last_status || "ok"})` : "Never run yet"
+        ),
+        el("div", { style: "display:flex;align-items:center;gap:6px;" },
+          el("button", {
+            class: "ghost small",
+            title: "Run immediately on next tick",
+            onclick: async () => {
+              toast("Triggering automation run…");
+              const r = await api("/api/cron/run", { body: { id: job.id } });
+              if (r.ok) toast("Job queued for immediate run! ✓", "ok");
+              else toast("Could not run job: " + (r.stderr || r.message), "err");
+            }
+          }, "▶ Run Now"),
+          el("button", {
+            class: "ghost small",
+            title: isPaused ? "Resume this scheduled job" : "Pause this scheduled job",
+            onclick: async () => {
+              const action = isPaused ? "resume" : "pause";
+              const r = await api("/api/cron/toggle", { body: { id: job.id, action } });
+              if (r.ok) {
+                toast(`Job ${action}d ✓`, "ok");
+                showPage("automations");
+              } else {
+                toast(`Could not ${action} job: ` + (r.stderr || r.message), "err");
+              }
+            }
+          }, isPaused ? "▶ Resume" : "⏸ Pause"),
+          el("button", {
+            class: "ghost small",
+            style: "color:var(--red);",
+            title: "Delete this scheduled job",
+            onclick: async () => {
+              if (!confirm(`Delete scheduled automation "${job.name || job.id}"?`)) return;
+              const r = await api("/api/cron/delete", { body: { id: job.id } });
+              if (r.ok) {
+                toast("Automation deleted ✓", "ok");
+                showPage("automations");
+              } else {
+                toast("Could not delete job: " + (r.stderr || r.message), "err");
+              }
+            }
+          }, "🗑")
+        )
+      );
+
+      jobCard.append(topRow, promptBox, metaRow, actionsRow);
+      jobsGrid.append(jobCard);
+    }
+    jobsSection.append(jobsGrid);
+  }
+
+  // 5. AUDIT HISTORY DRAWER (Collapsible)
+  let historyData = [];
+  try {
+    const histRes = await api("/api/cron/history");
+    historyData = histRes.executions || [];
+  } catch {}
+
+  const historyCard = el("div", { class: "card", style: "margin-top:20px;" });
+  const histHeader = el("div", { style: "display:flex;align-items:center;justify-content:space-between;" },
+    el("div", {},
+      el("div", { style: "font-size:15px;font-weight:750;" }, "📜 Execution Run Logs"),
+      el("div", { class: "dim small" }, "Durable execution attempts persisted in executions.db")
+    ),
+    el("span", { class: "badge standard" }, `${historyData.length} RUNS RECORDED`)
+  );
+  historyCard.append(histHeader);
+
+  if (historyData.length) {
+    const table = el("table", { class: "dash-ops-table", style: "margin-top:14px;" });
+    for (const h of historyData.slice(0, 15)) {
+      const isOk = h.status === "ok" || h.status === "completed";
+      const row = el("tr", { class: "dash-ops-row" },
+        el("td", { class: "dash-ops-cell" },
+          el("div", { style: "font-weight:650;font-size:13px;" }, `Job ID: ${h.job_id || "unknown"}`),
+          el("div", { class: "dim small", style: "font-family:var(--font-mono);font-size:11px;" },
+            `PID ${h.pid || "—"} · Source: ${h.source || "cron"} · ${h.error ? "Error: " + h.error : "No errors"}`
+          )
+        ),
+        el("td", { class: "dash-ops-cell", style: "text-align:right;white-space:nowrap;" },
+          el("span", { class: "badge " + (isOk ? "ok" : "warn"), style: "font-size:10.5px;font-weight:700;" },
+            h.status ? h.status.toUpperCase() : "DONE"
+          ),
+          el("div", { class: "dim small", style: "margin-top:4px;font-family:var(--font-mono);" },
+            h.started_at ? timeAgoStr(h.started_at) : "—"
+          )
+        )
+      );
+      table.append(row);
+    }
+    historyCard.append(table);
+  } else {
+    historyCard.append(el("div", { class: "dim small", style: "padding:16px 0;text-align:center;" }, "No background executions recorded yet. Scheduled jobs will log execution attempts here."));
+  }
+
+  page.replaceChildren(heroBanner, templatesDeck, creatorCard, jobsSection, historyCard);
 };
 
 /* ================================================================

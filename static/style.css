@@ -2248,8 +2248,10 @@ pre.codeblock {
 #page.wide-page,
 #page.providers-page,
 #page.memory-page,
+#page.automations-page,
 .providers-page #page,
-.memory-page #page {
+.memory-page #page,
+.automations-page #page {
   max-width: 1600px !important;
   width: 100% !important;
 }
@@ -3954,6 +3956,282 @@ pre.codeblock {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* ================================================================
+   AUTOMATIONS & SCHEDULER STUDIO
+================================================================ */
+.auto-hero-banner {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px 26px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  box-shadow: var(--shadow-xs);
+  border-left: 4px solid var(--gold);
+}
+.auto-hero-left {
+  flex: 1;
+  min-width: 280px;
+}
+.auto-hero-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.auto-hero-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 5px;
+  line-height: 1.45;
+}
+.auto-hero-metrics {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.auto-metric-pill {
+  background: var(--bg-subtle);
+  border: 1px solid var(--line-subtle);
+  border-radius: 8px;
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 110px;
+}
+.auto-metric-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+}
+.auto-metric-val {
+  font-size: 14.5px;
+  font-weight: 750;
+  color: var(--ink);
+  margin-top: 2px;
+}
+
+/* Templates Grid */
+.auto-templates-deck {
+  margin-bottom: 24px;
+}
+.auto-templates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+.auto-template-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.auto-template-card:hover {
+  border-color: var(--gold-border);
+  background: var(--bg-subtle);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+.auto-template-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.auto-template-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.auto-template-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+.auto-template-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+/* Prompt Creator Card */
+.auto-creator-form {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow-xs);
+}
+.auto-creator-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.auto-creator-title {
+  font-size: 16px;
+  font-weight: 750;
+  color: var(--ink);
+}
+.auto-prompt-area {
+  width: 100%;
+  min-height: 95px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  border: 1px solid var(--line);
+  padding: 12px 14px;
+  font-size: 13.5px;
+  color: var(--ink);
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.auto-prompt-area:focus {
+  border-color: var(--gold);
+  background: var(--bg);
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.15);
+}
+.auto-field-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+@media (max-width: 850px) {
+  .auto-field-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.auto-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.auto-field-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+}
+.auto-preset-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.auto-preset-pill {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--line-subtle);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.auto-preset-pill:hover, .auto-preset-pill.selected {
+  background: var(--gold-soft);
+  color: var(--gold-text);
+  border-color: var(--gold-border);
+  font-weight: 600;
+}
+
+/* Active Jobs Deck */
+.auto-jobs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 16px;
+}
+@media (max-width: 600px) {
+  .auto-jobs-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.auto-job-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: var(--shadow-xs);
+  transition: all 0.15s ease;
+  position: relative;
+}
+.auto-job-card:hover {
+  border-color: var(--gold-border);
+  box-shadow: var(--shadow-sm);
+}
+.auto-job-card.paused {
+  opacity: 0.75;
+  border-style: dashed;
+}
+.auto-job-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.auto-job-name {
+  font-size: 15.5px;
+  font-weight: 750;
+  color: var(--ink);
+}
+.auto-job-id {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+.auto-job-prompt-box {
+  background: var(--bg-subtle);
+  border: 1px solid var(--line-subtle);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink);
+  margin-bottom: 12px;
+  max-height: 100px;
+  overflow-y: auto;
+}
+.auto-job-meta-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.auto-job-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-subtle);
 }
 
 

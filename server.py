@@ -1531,6 +1531,8 @@ def dashboard_overview() -> dict:
     try:
         tg = telegram_status()
         mcp_servers = cfg.get("mcp", {}).get("servers", {}) or {}
+        jobs = cron_load_jobs()
+        active_jobs = [j for j in jobs if j.get("enabled", True) and j.get("state") != "paused"]
         out["gateways"] = {
             "telegram": {
                 "running": bool(tg.get("gateway_running")),
@@ -1546,12 +1548,84 @@ def dashboard_overview() -> dict:
             "tools": {
                 "count": 26,
                 "platform": "cli",
+            },
+            "cron": {
+                "total_jobs": len(jobs),
+                "active_jobs": len(active_jobs),
+                "running": bool(tg.get("gateway_running")),
             }
         }
     except Exception:
-        out["gateways"] = {"telegram": {"running": False, "token_set": False}, "mcp": {"count": 0}, "tools": {"count": 26}}
+        out["gateways"] = {"telegram": {"running": False, "token_set": False}, "mcp": {"count": 0}, "tools": {"count": 26}, "cron": {"total_jobs": 0, "active_jobs": 0}}
 
     return out
+
+
+# --------------------------------------------------------------------------
+# Automations & Cron Scheduler Subsystem
+# --------------------------------------------------------------------------
+def cron_load_jobs() -> list:
+    """Read jobs directly from ~/.hermes/cron/jobs.json."""
+    jobs_file = HERMES_HOME / "cron" / "jobs.json"
+    if not jobs_file.exists():
+        return []
+    try:
+        raw = json.loads(jobs_file.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            return raw.get("jobs", [])
+        elif isinstance(raw, list):
+            return raw
+    except Exception:
+        pass
+    return []
+
+
+def cron_status() -> dict:
+    """Return scheduler gateway and heartbeat vitals."""
+    cron_dir = HERMES_HOME / "cron"
+    hb_file = cron_dir / "ticker_heartbeat"
+    heartbeat_ago = None
+    if hb_file.exists():
+        try:
+            mtime = hb_file.stat().st_mtime
+            heartbeat_ago = max(0, round(time.time() - mtime))
+        except Exception:
+            pass
+
+    gw_running = gateway_running_fast()
+    pids = gateway_pids()
+    jobs = cron_load_jobs()
+    active_count = sum(1 for j in jobs if j.get("enabled", True) and j.get("state") != "paused")
+
+    return {
+        "ok": True,
+        "gateway_running": gw_running,
+        "gateway_pids": pids,
+        "heartbeat_ago_seconds": heartbeat_ago,
+        "total_jobs": len(jobs),
+        "active_jobs": active_count,
+    }
+
+
+def cron_executions_history(limit: int = 40) -> list:
+    """Read durable execution attempts from ~/.hermes/cron/executions.db."""
+    db_file = HERMES_HOME / "cron" / "executions.db"
+    if not db_file.exists():
+        return []
+    try:
+        con = sqlite3.connect(str(db_file), timeout=5)
+        con.row_factory = sqlite3.Row
+        cur = con.cursor()
+        cur.execute(
+            "SELECT id, job_id, source, pid, status, claimed_at, started_at, finished_at, error "
+            "FROM executions ORDER BY id DESC LIMIT ?",
+            (limit,)
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        con.close()
+        return rows
+    except Exception:
+        return []
 
 
 # --------------------------------------------------------------------------
@@ -1877,6 +1951,14 @@ class Handler(BaseHTTPRequestHandler):
                 "path": str(mem_file),
                 "mtime": mtime,
             })
+        elif path == "/api/cron/status":
+            self._json(cron_status())
+        elif path == "/api/cron/jobs":
+            jobs = cron_load_jobs()
+            st = cron_status()
+            self._json({"ok": True, "jobs": jobs, "status": st})
+        elif path == "/api/cron/history":
+            self._json({"ok": True, "executions": cron_executions_history(50)})
         else:
             self._send(404, b'{"error": "not found"}')
 
@@ -2279,6 +2361,57 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, "message": "Memory cleared and backed up to .curator_backups ✓"})
             elif path == "/api/backup":
                 self._json(run_hermes("backup", timeout=300))
+            elif path == "/api/cron/create":
+                schedule = str(body.get("schedule", "")).strip()
+                prompt = str(body.get("prompt", "")).strip()
+                name = str(body.get("name", "")).strip()
+                deliver = str(body.get("deliver", "local")).strip()
+                model = str(body.get("model", "")).strip()
+                provider = str(body.get("provider", "")).strip()
+
+                if not schedule:
+                    raise ValueError("Schedule is required (e.g. 'every 2h', '30m', '0 9 * * *')")
+
+                args = ["cron", "create", schedule]
+                if prompt:
+                    args.append(prompt)
+                if name:
+                    args.extend(["--name", name])
+                if deliver:
+                    args.extend(["--deliver", deliver])
+                if model:
+                    args.extend(["--model", model])
+                if provider:
+                    args.extend(["--provider", provider])
+
+                res = run_hermes(*args, timeout=60)
+                job_id = None
+                if res.get("ok"):
+                    m_id = re.search(r"Created job:\s*([a-f0-9]+)", res.get("stdout", ""))
+                    if m_id:
+                        job_id = m_id.group(1)
+                self._json({**res, "job_id": job_id})
+            elif path == "/api/cron/toggle":
+                job_id = str(body.get("id", "")).strip()
+                action = str(body.get("action", "pause")).strip()
+                if not job_id:
+                    raise ValueError("Job ID is required")
+                if action not in ("pause", "resume"):
+                    raise ValueError("Action must be 'pause' or 'resume'")
+                res = run_hermes("cron", action, job_id, timeout=30)
+                self._json(res)
+            elif path == "/api/cron/run":
+                job_id = str(body.get("id", "")).strip()
+                if not job_id:
+                    raise ValueError("Job ID is required")
+                res = run_hermes("cron", "run", job_id, timeout=30)
+                self._json(res)
+            elif path == "/api/cron/delete":
+                job_id = str(body.get("id", "")).strip()
+                if not job_id:
+                    raise ValueError("Job ID is required")
+                res = run_hermes("cron", "rm", job_id, timeout=30)
+                self._json(res)
             else:
                 self._send(404, b'{"error": "not found"}')
         except ValueError as e:
