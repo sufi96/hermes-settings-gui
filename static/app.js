@@ -612,7 +612,8 @@ function showPage(name) {
   page.classList.toggle("home-page", name === "home");
   page.classList.toggle("chat-page", name === "chat");
   page.classList.toggle("providers-page", name === "providers");
-  page.classList.toggle("wide-page", name === "home" || name === "providers" || name === "chat" || name === "tools");
+  page.classList.toggle("memory-page", name === "memory");
+  page.classList.toggle("wide-page", name === "home" || name === "providers" || name === "chat" || name === "tools" || name === "memory");
   page.replaceChildren(el("div", { class: "loading" }, "Loading…"));
   if (PAGES[name]) {
     PAGES[name](page);
@@ -773,6 +774,15 @@ PAGES.home = async function (page) {
       onAction: () => showPage("tools")
     }),
     makeFeatureCard({
+      icon: "🧠",
+      title: "Agent Long-Term Memory",
+      badge: "Knowledge",
+      desc: "Curate persistent memory facts in MEMORY.md, adjust character context limits, inspect indexed knowledge, and manage user profile retention.",
+      status: `${(mem.used_chars || 0).toLocaleString()} chars indexed (${pct}% capacity)`,
+      actionText: "Open Memory Studio",
+      onAction: () => showPage("memory")
+    }),
+    makeFeatureCard({
       icon: "⚙️",
       title: "Agent Settings & Raw YAML",
       badge: "Deck",
@@ -848,6 +858,7 @@ PAGES.home = async function (page) {
     el("button", { onclick: () => showPage("model") }, "🤖 Main AI Engine"),
     el("button", { onclick: () => showPage("providers") }, "🔌 Providers"),
     el("button", { onclick: () => showPage("tools") }, "🛠️ Agent Tools"),
+    el("button", { onclick: () => showPage("memory") }, "🧠 Memory"),
     el("button", { onclick: () => showPage("keys") }, "🔑 API Keys"),
     el("button", { onclick: openSystemHealthModal }, "🖥️ System Check"),
     el("button", { onclick: async () => {
@@ -929,7 +940,11 @@ PAGES.home = async function (page) {
   // 5. AGENT BRAIN & SKILLS
   const brainGrid = el("div", { class: "home-brain-grid" });
   const pct = mem.char_limit ? Math.min(100, Math.round(((mem.used_chars || 0) / mem.char_limit) * 100)) : 0;
-  const memCard = el("div", { class: "home-brain-card" },
+  const memCard = el("div", {
+    class: "home-brain-card",
+    style: "cursor:pointer;",
+    onclick: () => showPage("memory")
+  },
     el("div", {},
       el("div", { class: "home-brain-top" },
         el("div", { class: "home-brain-title" }, "🧠 Long-Term Memory"),
@@ -945,7 +960,7 @@ PAGES.home = async function (page) {
       mem.snippet ? el("div", { class: "home-memory-snippet" }, `“${mem.snippet}”`) : null
     ),
     el("div", { style: "margin-top:14px;display:flex;justify-content:flex-end;" },
-      el("button", { class: "ghost", style: "font-size:12px;padding:4px 10px;", onclick: () => showPage("config") }, "Memory Settings →")
+      el("button", { class: "ghost", style: "font-size:12px;padding:4px 10px;", onclick: (e) => { e.stopPropagation(); showPage("memory"); } }, "Open Memory Studio →")
     )
   );
 
@@ -2440,7 +2455,7 @@ PAGES.memory = async function (page) {
 
   let knowledgeCard = null;
   if (rawSections.length) {
-    const list = el("div", { class: "memory-entries-list" });
+    const list = el("div", { class: "memory-entries-grid" });
     rawSections.forEach((sec, idx) => {
       const entryCard = el("div", { class: "memory-entry-card" },
         el("div", { class: "memory-entry-top" },
