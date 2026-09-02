@@ -1422,6 +1422,119 @@ def chat_stats(session_id: str | None) -> dict:
 
 
 # --------------------------------------------------------------------------
+# Dashboard Overview (Home Page Intelligence)
+# --------------------------------------------------------------------------
+def dashboard_overview() -> dict:
+    """Aggregated stats for the Home page dashboard."""
+    cfg = load_config()
+    out = {
+        "ok": True,
+        "totals": {
+            "sessions": 0, "messages": 0, "tool_calls": 0,
+            "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0,
+            "cache_savings_pct": 0,
+        },
+        "recent_sessions": [],
+        "memory": {
+            "enabled": bool(cfg.get("memory", {}).get("memory_enabled", True)),
+            "user_profile": bool(cfg.get("memory", {}).get("user_profile_enabled", True)),
+            "char_limit": int(cfg.get("memory", {}).get("memory_char_limit", 10000)),
+            "used_chars": 0,
+            "snippet": "",
+        },
+        "skills": {
+            "count": 0,
+            "list": [],
+        },
+        "gateway": {
+            "telegram": False,
+            "discord": False,
+        }
+    }
+
+    # 1. SQLite state.db metrics
+    if STATE_DB.exists():
+        try:
+            con = sqlite3.connect(f"file:{STATE_DB}?mode=ro", uri=True)
+            cur = con.cursor()
+            cur.execute("""
+                SELECT 
+                    COUNT(*),
+                    COALESCE(SUM(message_count), 0),
+                    COALESCE(SUM(tool_call_count), 0),
+                    COALESCE(SUM(input_tokens), 0),
+                    COALESCE(SUM(output_tokens), 0),
+                    COALESCE(SUM(cache_read_tokens), 0)
+                FROM sessions
+            """)
+            row = cur.fetchone()
+            if row:
+                inp, out_tok, cache_r = row[3], row[4], row[5]
+                denom = inp + cache_r
+                cache_pct = round((cache_r / denom) * 100, 1) if denom > 0 else 0
+                out["totals"] = {
+                    "sessions": row[0],
+                    "messages": row[1],
+                    "tool_calls": row[2],
+                    "input_tokens": inp,
+                    "output_tokens": out_tok,
+                    "cache_read_tokens": cache_r,
+                    "cache_savings_pct": cache_pct,
+                }
+
+            cur.execute("""
+                SELECT id, title, model, started_at, message_count, tool_call_count, input_tokens, output_tokens
+                FROM sessions
+                WHERE message_count > 0
+                ORDER BY started_at DESC
+                LIMIT 4
+            """)
+            recent = []
+            for r in cur.fetchall():
+                recent.append({
+                    "id": r[0],
+                    "title": r[1] or "Untitled Session",
+                    "model": (r[2] or "").split("/")[-1] or "default",
+                    "started_at": r[3],
+                    "message_count": r[4] or 0,
+                    "tool_call_count": r[5] or 0,
+                    "input_tokens": r[6] or 0,
+                    "output_tokens": r[7] or 0,
+                })
+            out["recent_sessions"] = recent
+            con.close()
+        except Exception:
+            pass
+
+    # 2. Memory files
+    mem_file = HERMES_HOME / "memories" / "MEMORY.md"
+    if mem_file.exists():
+        try:
+            txt = mem_file.read_text(encoding="utf-8", errors="ignore").strip()
+            out["memory"]["used_chars"] = len(txt)
+            first_line = txt.split("\n")[0].strip()
+            out["memory"]["snippet"] = first_line[:140] + ("…" if len(first_line) > 140 else "")
+        except Exception:
+            pass
+
+    # 3. Skills directory
+    skills_dir = HERMES_HOME / "skills"
+    if skills_dir.exists():
+        try:
+            skills = [p.name for p in skills_dir.iterdir() if (p.is_dir() or p.suffix in (".py", ".md")) and not p.name.startswith(".")]
+            out["skills"]["count"] = len(skills)
+            out["skills"]["list"] = skills[:8]
+        except Exception:
+            pass
+
+    # 4. Gateway check
+    gw_pid = HERMES_HOME / "gateway.pid"
+    out["gateway"]["telegram"] = gw_pid.exists()
+
+    return out
+
+
+# --------------------------------------------------------------------------
 # Update Checker & Updater
 # --------------------------------------------------------------------------
 UPDATE_CACHE: dict = {"ts": 0, "data": None}
@@ -1719,6 +1832,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/update/check":
             force = self._qs().get("force", "") == "1"
             self._json(check_updates(force=force))
+        elif path == "/api/dashboard/overview":
+            self._json(dashboard_overview())
         else:
             self._send(404, b'{"error": "not found"}')
 

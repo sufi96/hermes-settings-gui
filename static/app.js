@@ -619,9 +619,40 @@ function showPage(name) {
   }
 }
 
+/* ---------------- dashboard helpers ---------------- */
+function fmtTokens(n) {
+  n = Number(n) || 0;
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+  if (n >= 1000) return (n / 1000).toFixed(1) + "k";
+  return String(n);
+}
+
+function timeAgoStr(ts) {
+  if (!ts) return "";
+  const s = Math.max(1, Math.floor(Date.now() / 1000 - ts));
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + "m ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago";
+  return Math.floor(s / 86400) + "d ago";
+}
+
+window.resumeSessionFromHome = async function(sid) {
+  CHAT.session_id = sid;
+  showPage("chat");
+};
+
 /* ---------------- HOME (EXECUTIVE SUMMARY & FEATURE SHORTCUTS) ---------------- */
 PAGES.home = async function (page) {
   await loadState();
+  let overview = null;
+  try {
+    overview = await api("/api/dashboard/overview");
+  } catch {}
+  overview = overview || {};
+  const recents = overview.recent_sessions || [];
+  const tot = overview.totals || {};
+  const mem = overview.memory || {};
+  const skills = overview.skills || {};
   const m = STATE.model || {};
   const fb = STATE.fallback_chain || [];
   const keysSet = (STATE.env_entries || []).filter(e => e.set && /KEY|TOKEN|SECRET|PASSWORD/i.test(e.key)).length;
@@ -856,6 +887,87 @@ PAGES.home = async function (page) {
     );
   }
 
+  // 3. RECENT CHAT SESSIONS GRID
+  const recentGrid = el("div", { class: "home-recent-grid" });
+  if (recents.length) {
+    for (const s of recents) {
+      const card = el("div", {
+        class: "home-recent-card",
+        onclick: () => resumeSessionFromHome(s.id)
+      },
+        el("div", { class: "home-recent-top" },
+          el("span", { class: "badge standard", style: "font-weight:700;font-size:11px;" }, s.model),
+          el("span", { class: "dim small", style: "font-family:var(--font-mono);" }, timeAgoStr(s.started_at))
+        ),
+        el("div", { class: "home-recent-title", title: s.title }, s.title),
+        el("div", { class: "home-recent-meta" },
+          el("span", { class: "home-recent-chip" }, `💬 ${s.message_count} msgs`),
+          s.tool_call_count > 0 ? el("span", { class: "home-recent-chip" }, `🛠️ ${s.tool_call_count} tools`) : null,
+          el("span", { class: "home-recent-chip" }, `⚡ ${fmtTokens(s.input_tokens + s.output_tokens)} tokens`)
+        ),
+        el("button", {
+          class: "home-recent-btn",
+          onclick: (e) => {
+            e.stopPropagation();
+            resumeSessionFromHome(s.id);
+          }
+        }, "▶ Resume Chat")
+      );
+      recentGrid.append(card);
+    }
+  }
+
+  // 4. LIFETIME COMPUTE & TOKEN EFFICIENCY
+  const lifetimeBar = el("div", { class: "home-stats-bar" });
+  lifetimeBar.append(
+    statBox("📊", "Lifetime Tokens", fmtTokens(tot.input_tokens + tot.output_tokens), `In: ${fmtTokens(tot.input_tokens)} · Out: ${fmtTokens(tot.output_tokens)}`, false),
+    statBox("🚀", "Cache Hit Rate", `${tot.cache_savings_pct || 0}%`, `${fmtTokens(tot.cache_read_tokens)} tokens read free`, true),
+    statBox("🛠️", "Tool Executions", `${tot.tool_calls || 0} calls`, `Across ${tot.sessions || 0} agent sessions`, false),
+    statBox("💬", "Lifetime Turns", `${tot.messages || 0} turns`, "Persisted in SQLite state.db", false)
+  );
+
+  // 5. AGENT BRAIN & SKILLS
+  const brainGrid = el("div", { class: "home-brain-grid" });
+  const pct = mem.char_limit ? Math.min(100, Math.round(((mem.used_chars || 0) / mem.char_limit) * 100)) : 0;
+  const memCard = el("div", { class: "home-brain-card" },
+    el("div", {},
+      el("div", { class: "home-brain-top" },
+        el("div", { class: "home-brain-title" }, "🧠 Long-Term Memory"),
+        el("span", { class: "badge standard", style: "background:var(--gold-soft);color:var(--gold-text);border-color:var(--gold-border);font-weight:700;" }, mem.enabled ? "ACTIVE" : "OFF")
+      ),
+      el("div", { style: "display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px;" },
+        el("span", {}, "Memory Storage (MEMORY.md)"),
+        el("span", { style: "font-family:var(--font-mono);font-weight:600;" }, `${mem.used_chars || 0} / ${mem.char_limit || 10000} chars (${pct}%)`)
+      ),
+      el("div", { class: "home-memory-meter" },
+        el("div", { class: "home-memory-fill", style: `width:${pct}%` })
+      ),
+      mem.snippet ? el("div", { class: "home-memory-snippet" }, `“${mem.snippet}”`) : null
+    ),
+    el("div", { style: "margin-top:14px;display:flex;justify-content:flex-end;" },
+      el("button", { class: "ghost", style: "font-size:12px;padding:4px 10px;", onclick: () => showPage("config") }, "Memory Settings →")
+    )
+  );
+
+  const skillsWrap = el("div", { class: "home-skills-wrap" });
+  for (const sk of (skills.list || [])) {
+    skillsWrap.append(el("span", { class: "home-skill-pill" }, `🧩 ${sk}`));
+  }
+  const skillsCard = el("div", { class: "home-brain-card" },
+    el("div", {},
+      el("div", { class: "home-brain-top" },
+        el("div", { class: "home-brain-title" }, "🧩 Installed Skills"),
+        el("span", { class: "badge standard", style: "font-weight:700;" }, `${skills.count || 0} LOADED`)
+      ),
+      el("p", { class: "dim small", style: "margin:0 0 8px;" }, "Autonomous skill capabilities active in your Hermes workspace:"),
+      skillsWrap
+    ),
+    el("div", { style: "margin-top:14px;display:flex;justify-content:flex-end;" },
+      el("button", { class: "ghost", style: "font-size:12px;padding:4px 10px;", onclick: () => showPage("tools") }, "Manage Toolsets →")
+    )
+  );
+  brainGrid.append(memCard, skillsCard);
+
   const pageElements = [];
   if (systemAlertBanner) {
     pageElements.push(systemAlertBanner);
@@ -873,7 +985,21 @@ PAGES.home = async function (page) {
     ),
     el("p", { class: "pagesub" }, "Executive overview of your AI agent stack with instant shortcuts to all core features, models, capabilities, and system tools."),
     makeDivider("Engine Status & System Vitals", "⚡"),
-    statsBar,
+    statsBar
+  );
+
+  if (recents.length) {
+    pageElements.push(
+      makeDivider("Recent Conversations & Quick Resume", "💬"),
+      recentGrid
+    );
+  }
+
+  pageElements.push(
+    makeDivider("Lifetime Compute & Token Efficiency", "📊"),
+    lifetimeBar,
+    makeDivider("Agent Memory & Skill Extensions", "🧠"),
+    brainGrid,
     makeDivider("Feature Deck & Capabilities", "🧭"),
     featureGrid,
     makeDivider("Quick Actions", "⚡"),
@@ -3657,6 +3783,9 @@ PAGES.chat = async function (page) {
   wrap.append(el("div", { class: "chat-main" }, hud, msgs, typing, inputbar), side);
   page.replaceChildren(wrap);
   await refreshSidebar();
+  if (CHAT.session_id) {
+    await loadSessionById(CHAT.session_id);
+  }
   await refreshHud();
   renderMsgs();
   ta.focus();
