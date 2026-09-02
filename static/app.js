@@ -600,7 +600,7 @@ function closeMobileMenu() {
   if (backdrop) backdrop.classList.remove("open");
 }
 
-function showPage(name) {
+async function showPage(name) {
   currentPage = name;
   document.querySelectorAll(".menu-item").forEach(b =>
     b.classList.toggle("active", b.dataset.page === name));
@@ -616,7 +616,20 @@ function showPage(name) {
   page.classList.toggle("wide-page", name === "home" || name === "providers" || name === "chat" || name === "tools" || name === "memory");
   page.replaceChildren(el("div", { class: "loading" }, "Loading…"));
   if (PAGES[name]) {
-    PAGES[name](page);
+    try {
+      await PAGES[name](page);
+    } catch (err) {
+      console.error("Page error in " + name + ":", err);
+      page.replaceChildren(
+        el("div", { class: "card", style: "margin-top:20px;border-color:var(--red);" },
+          el("h3", { style: "color:var(--red);margin-bottom:8px;" }, "⚠️ Failed to load page: " + name),
+          el("p", { class: "dim", style: "font-family:var(--font-mono);font-size:12px;" }, err.stack || err.message || String(err)),
+          el("div", { style: "margin-top:14px;" },
+            el("button", { onclick: () => showPage(name) }, "↺ Retry")
+          )
+        )
+      );
+    }
   }
 }
 
@@ -654,6 +667,7 @@ PAGES.home = async function (page) {
   const tot = overview.totals || {};
   const mem = overview.memory || {};
   const skills = overview.skills || {};
+  const memPct = mem.char_limit ? Math.min(100, Math.round(((mem.used_chars || 0) / mem.char_limit) * 100)) : 0;
   const m = STATE.model || {};
   const fb = STATE.fallback_chain || [];
   const keysSet = (STATE.env_entries || []).filter(e => e.set && /KEY|TOKEN|SECRET|PASSWORD/i.test(e.key)).length;
@@ -778,7 +792,7 @@ PAGES.home = async function (page) {
       title: "Agent Long-Term Memory",
       badge: "Knowledge",
       desc: "Curate persistent memory facts in MEMORY.md, adjust character context limits, inspect indexed knowledge, and manage user profile retention.",
-      status: `${(mem.used_chars || 0).toLocaleString()} chars indexed (${pct}% capacity)`,
+      status: `${(mem.used_chars || 0).toLocaleString()} chars indexed (${memPct}% capacity)`,
       actionText: "Open Memory Studio",
       onAction: () => showPage("memory")
     }),
@@ -939,7 +953,7 @@ PAGES.home = async function (page) {
 
   // 5. AGENT BRAIN & SKILLS
   const brainGrid = el("div", { class: "home-brain-grid" });
-  const pct = mem.char_limit ? Math.min(100, Math.round(((mem.used_chars || 0) / mem.char_limit) * 100)) : 0;
+  const pct = memPct;
   const memCard = el("div", {
     class: "home-brain-card",
     style: "cursor:pointer;",
