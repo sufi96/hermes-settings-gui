@@ -1,0 +1,21 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Authentication tokens & local secrets
+.deck-token
+.env
+*.local
+*.log
+
+# Build & test scratch
+.build/
+.temp/
+
+# OS / Editor artifacts
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

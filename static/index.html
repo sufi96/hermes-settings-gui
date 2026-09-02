@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hermes Settings</title>
+<link rel="icon" type="image/x-icon" href="/hermes_icon.ico">
+<link rel="stylesheet" href="style.css?v=chat9">
+<script>
+  (function() {
+    const saved = localStorage.getItem("hermes-theme") || "light";
+    document.documentElement.setAttribute("data-theme", saved);
+  })();
+</script>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ===== mobile top header ===== -->
+  <header id="mobile-header">
+    <button id="mobile-menu-btn" aria-label="Toggle navigation menu">
+      <span class="m-icon">☰</span>
+    </button>
+    <div class="m-brand">
+      <img class="m-logo-img" src="/hermes_icon.ico" alt="Hermes" width="24" height="24">
+      <span class="m-title">Hermes</span>
+    </div>
+    <div id="mobile-save-dot" class="saved" title="All changes saved">●</div>
+  </header>
+
+  <!-- mobile backdrop -->
+  <div id="menu-backdrop" class="menu-backdrop"></div>
+
+  <!-- ===== left menu ===== -->
+  <aside id="menu">
+    <div id="menu-head">
+      <div class="brand-row">
+        <div class="brand-badge"><img class="brand-badge-img" src="/hermes_icon.ico" alt="Hermes" width="28" height="28"></div>
+        <div class="brand-text">
+          <div id="menu-title">Hermes</div>
+          <div id="menu-sub">Control Deck <span class="deck-version-badge">v1.0.0</span></div>
+        </div>
+      </div>
+      <div class="deck-tag" id="deck-status">Agent Config</div>
+    </div>
+    <nav id="menu-list">
+      <button class="menu-item active" data-page="home">
+        <span class="mi-emoji">🏠</span> <span class="mi-text">Home</span>
+      </button>
+      <button class="menu-item" data-page="chat">
+        <span class="mi-emoji">💬</span> <span class="mi-text">Chat</span>
+      </button>
+      <button class="menu-item" data-page="model">
+        <span class="mi-emoji">🤖</span> <span class="mi-text">Main AI</span>
+      </button>
+      <button class="menu-item" data-page="providers">
+        <span class="mi-emoji">🔌</span> <span class="mi-text">Providers</span>
+      </button>
+      <button class="menu-item" data-page="fallback">
+        <span class="mi-emoji">🛟</span> <span class="mi-text">Backup Models</span>
+      </button>
+      <button class="menu-item" data-page="keys">
+        <span class="mi-emoji">🔑</span> <span class="mi-text">API Keys</span>
+      </button>
+      <button class="menu-item" data-page="tools">
+        <span class="mi-emoji">🧰</span> <span class="mi-text">Tools</span>
+      </button>
+      <button class="menu-item" data-page="agent">
+        <span class="mi-emoji">⚙️</span> <span class="mi-text">Agent Behavior</span>
+      </button>
+      <button class="menu-item" data-page="telegram">
+        <span class="mi-emoji">✈️</span> <span class="mi-text">Telegram Bot</span>
+      </button>
+      <button class="menu-item" data-page="mcp">
+        <span class="mi-emoji">🧩</span> <span class="mi-text">MCP Servers</span>
+      </button>
+      <button class="menu-item" data-page="terminal">
+        <span class="mi-emoji">💻</span> <span class="mi-text">Terminal</span>
+      </button>
+      <button class="menu-item" data-page="display">
+        <span class="mi-emoji">🎨</span> <span class="mi-text">Display &amp; Voice</span>
+      </button>
+      <button class="menu-item" data-page="advanced">
+        <span class="mi-emoji">🔧</span> <span class="mi-text">Advanced</span>
+      </button>
+    </nav>
+    <div id="menu-foot">
+      <!-- Collapse Toggle -->
+      <button id="menu-collapse-btn" class="menu-collapse-btn" title="Collapse sidebar">
+        <span class="mi-emoji">«</span> <span class="mi-text">Collapse</span>
+      </button>
+      <!-- Theme Switcher -->
+      <div class="theme-switcher" id="theme-switcher">
+        <button class="theme-btn" data-theme="light" title="Light theme">☀️ Light</button>
+        <button class="theme-btn" data-theme="dark" title="Dark theme">🌙 Dark</button>
+        <button class="theme-btn" data-theme="auto" title="System theme">💻 Auto</button>
+      </div>
+      <div id="save-indicator" class="saved">
+        <span class="status-dot">●</span>
+        <span class="status-text">All changes saved</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===== right content ===== -->
+  <main id="content">
+    <div id="page"></div>
+  </main>
+
+</div>
+
+<!-- toast messages -->
+<div id="toasts"></div>
+
+<script src="app.js?v=chat9"></script>
+</body>
+</html>

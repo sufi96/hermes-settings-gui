@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Hermes Settings Linux
+GenericName=Hermes Agent Settings
+Comment=Local Web Config Deck for Hermes Agent
+Exec=bash -c 'cd "$(dirname "%k")/.." && ./"linux/Hermes Settings Linux.sh"'
+Icon=assets/hermes_icon.png
+Terminal=true
+Categories=Utility;Development;Settings;
+StartupNotify=true
