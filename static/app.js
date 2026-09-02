@@ -2274,6 +2274,237 @@ PAGES.tools = async function (page) {
   box.append(c);
 };
 
+/* ---------------- MEMORY MANAGEMENT ---------------- */
+PAGES.memory = async function (page) {
+  await loadState();
+  let memData = { content: "", char_count: 0, char_limit: 10000, memory_enabled: true, user_profile_enabled: true };
+  try {
+    const r = await api("/api/memory");
+    if (r && r.ok) memData = r;
+  } catch {}
+
+  const pct = memData.char_limit ? Math.min(100, Math.round((memData.char_count / memData.char_limit) * 100)) : 0;
+  let meterColor = "var(--gold)";
+  if (pct > 90) meterColor = "var(--red)";
+  else if (pct > 75) meterColor = "var(--amber)";
+
+  // 1. TOP STATS BAR
+  const statsBar = el("div", { class: "home-stats-bar", style: "margin-bottom:20px;" });
+
+  // Box 1: Capacity Meter
+  const meterBox = el("div", { class: "stat", style: "grid-column: span 2; min-width:320px;" },
+    el("div", { style: "display:flex;align-items:center;justify-content:space-between;" },
+      el("div", { class: "k" }, "🧠 Memory Capacity"),
+      el("span", { class: "badge standard", style: "font-family:var(--font-mono);font-size:11px;" }, `${pct}% used`)
+    ),
+    el("div", { class: "v accent" }, `${memData.char_count.toLocaleString()} / ${memData.char_limit.toLocaleString()} chars`),
+    el("div", { class: "home-memory-meter", style: "margin-top:10px;" },
+      el("div", { class: "home-memory-fill", style: `width:${pct}%;background:${meterColor};` })
+    ),
+    el("div", { class: "dim small", style: "margin-top:4px;" }, "Stored in ~/.hermes/memories/MEMORY.md")
+  );
+
+  // Box 2: Memory Enabled Toggle
+  const memTgl = el("input", { type: "checkbox", checked: memData.memory_enabled });
+  memTgl.onchange = async () => {
+    const r = await api("/api/set", { body: { key: "memory.memory_enabled", value: memTgl.checked } });
+    if (r.ok !== false) toast("Long-term memory " + (memTgl.checked ? "enabled ✓" : "disabled ✓"), "ok");
+    else toast("Error updating: " + r.message, "err");
+  };
+  const tglBox1 = el("div", { class: "stat", style: "display:flex;flex-direction:column;justify-content:space-between;" },
+    el("div", { class: "k" }, "Long-Term Memory"),
+    el("div", { style: "display:flex;align-items:center;justify-content:space-between;margin-top:6px;" },
+      el("span", { style: "font-weight:700;font-size:15px;color:var(--ink);" }, memTgl.checked ? "Enabled" : "Disabled"),
+      el("label", { class: "tgl" }, memTgl)
+    ),
+    el("div", { class: "dim small", style: "margin-top:4px;" }, "Retains facts across agent sessions")
+  );
+
+  // Box 3: User Profile Toggle
+  const profTgl = el("input", { type: "checkbox", checked: memData.user_profile_enabled });
+  profTgl.onchange = async () => {
+    const r = await api("/api/set", { body: { key: "memory.user_profile_enabled", value: profTgl.checked } });
+    if (r.ok !== false) toast("User profile tracking " + (profTgl.checked ? "enabled ✓" : "disabled ✓"), "ok");
+    else toast("Error updating: " + r.message, "err");
+  };
+  const tglBox2 = el("div", { class: "stat", style: "display:flex;flex-direction:column;justify-content:space-between;" },
+    el("div", { class: "k" }, "User Profile Tracking"),
+    el("div", { style: "display:flex;align-items:center;justify-content:space-between;margin-top:6px;" },
+      el("span", { style: "font-weight:700;font-size:15px;color:var(--ink);" }, profTgl.checked ? "Enabled" : "Disabled"),
+      el("label", { class: "tgl" }, profTgl)
+    ),
+    el("div", { class: "dim small", style: "margin-top:4px;" }, "Captures user habits and preferences")
+  );
+
+  statsBar.append(meterBox, tglBox1, tglBox2);
+
+  // 2. EDITOR COMPONENT
+  const editor = el("textarea", {
+    class: "memory-editor-textarea",
+    placeholder: "No memories saved yet. Hermes writes memory notes here, or you can add custom facts.",
+    spellcheck: "false"
+  });
+  editor.value = memData.content || "";
+
+  const charCounter = el("span", {
+    style: "font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:600;"
+  }, `${editor.value.length.toLocaleString()} characters`);
+
+  editor.oninput = () => {
+    charCounter.textContent = `${editor.value.length.toLocaleString()} characters`;
+  };
+
+  const saveBtn = el("button", { class: "primary" }, "💾 Save Memory");
+  saveBtn.onclick = async () => {
+    saveBtn.disabled = true;
+    try {
+      const r = await api("/api/memory/save", { body: { content: editor.value } });
+      if (r.ok) {
+        toast("Memory file saved successfully ✓", "ok");
+        await loadState();
+        showPage("memory");
+      } else {
+        toast("Could not save memory: " + r.message, "err");
+        saveBtn.disabled = false;
+      }
+    } catch (e) {
+      toast("Error: " + e.message, "err");
+      saveBtn.disabled = false;
+    }
+  };
+
+  const addBtn = el("button", {}, "+ Add Entry");
+  addBtn.onclick = () => {
+    const template = `\n\n§\n[${new Date().toLocaleDateString()}] New memory entry: `;
+    editor.value = editor.value.trimEnd() + template;
+    editor.focus();
+    editor.setSelectionRange(editor.value.length, editor.value.length);
+    charCounter.textContent = `${editor.value.length.toLocaleString()} characters`;
+  };
+
+  const reloadBtn = el("button", {}, "↺ Reload");
+  reloadBtn.onclick = () => showPage("memory");
+
+  const clearBtn = el("button", { class: "danger" }, "🗑️ Clear Memory");
+  clearBtn.onclick = () => {
+    openModal("🗑️ Reset & Clear Memory", (body, actions) => {
+      body.append(
+        el("p", {}, "Are you sure you want to clear MEMORY.md?"),
+        el("p", { class: "dim small" }, "An automatic timestamped backup will be created in ~/.hermes/.curator_backups/.")
+      );
+      actions.append(
+        el("button", { onclick: closeModal }, "Cancel"),
+        el("button", {
+          class: "danger",
+          onclick: async () => {
+            closeModal();
+            const r = await api("/api/memory/clear", { body: {} });
+            if (r.ok) {
+              toast("Memory cleared and backed up ✓", "ok");
+              await loadState();
+              showPage("memory");
+            } else {
+              toast("Failed to clear: " + r.message, "err");
+            }
+          }
+        }, "Confirm Clear")
+      );
+    });
+  };
+
+  const editorToolbar = el("div", {
+    style: "display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;"
+  },
+    el("div", { style: "display:flex;align-items:center;gap:8px;flex-wrap:wrap;" },
+      addBtn,
+      reloadBtn,
+      clearBtn
+    ),
+    el("div", { style: "display:flex;align-items:center;gap:12px;" },
+      charCounter,
+      saveBtn
+    )
+  );
+
+  const editorCard = card("Memory Knowledge Editor (MEMORY.md)",
+    "Directly curate and edit the persistent knowledge file that Hermes references in conversations.",
+    editorToolbar,
+    editor
+  );
+
+  // 3. PARSED KNOWLEDGE CARDS
+  const rawSections = (editor.value || "")
+    .split(/\n§\n|\n\n+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  let knowledgeCard = null;
+  if (rawSections.length) {
+    const list = el("div", { class: "memory-entries-list" });
+    rawSections.forEach((sec, idx) => {
+      const entryCard = el("div", { class: "memory-entry-card" },
+        el("div", { class: "memory-entry-top" },
+          el("span", { class: "badge standard", style: "font-weight:700;font-size:10px;" }, `ENTRY #${idx + 1}`),
+          el("button", {
+            class: "ghost small",
+            title: "Delete this memory entry",
+            style: "color:var(--red);font-size:11px;padding:2px 6px;",
+            onclick: async () => {
+              if (!confirm(`Delete Entry #${idx + 1}?`)) return;
+              const remaining = rawSections.filter((_, i) => i !== idx);
+              const newContent = remaining.join("\n\n§\n\n");
+              const r = await api("/api/memory/save", { body: { content: newContent } });
+              if (r.ok) {
+                toast(`Deleted Entry #${idx + 1} ✓`, "ok");
+                showPage("memory");
+              }
+            }
+          }, "✕ Delete")
+        ),
+        el("div", { class: "memory-entry-text" }, sec)
+      );
+      list.append(entryCard);
+    });
+    knowledgeCard = card("Indexed Memory Facts", "Individual knowledge items parsed from your memory storage.", list);
+  }
+
+  // 4. CONFIGURATION SETTINGS
+  const limitInput = el("input", { type: "number", value: memData.char_limit || 10000, min: 500, max: 50000, step: 500 });
+  const limitSaveBtn = el("button", { class: "primary" }, "Save Limit");
+  limitSaveBtn.onclick = async () => {
+    limitSaveBtn.disabled = true;
+    const r = await api("/api/set", { body: { key: "memory.memory_char_limit", value: String(limitInput.value) } });
+    if (r.ok !== false) {
+      toast("Memory character limit updated ✓", "ok");
+      await loadState();
+      showPage("memory");
+    } else {
+      toast("Could not save limit: " + r.message, "err");
+      limitSaveBtn.disabled = false;
+    }
+  };
+
+  const configCard = card("Memory Parameters", "Configure memory size constraints and injection limits.",
+    field("Character limit (memory_char_limit)", el("div", { style: "display:flex;gap:10px;align-items:center;" }, limitInput, limitSaveBtn),
+      "Maximum characters loaded into Hermes's prompt context. Defaults to 10,000 characters.")
+  );
+
+  const pageElements = [
+    el("h1", { class: "pagetitle" },
+      el("span", { class: "title-gold" }, "Agent Memory"),
+      " Management"
+    ),
+    el("p", { class: "pagesub" }, "Inspect, curate, and fine-tune Hermes's long-term memory store (MEMORY.md) to preserve instructions, context, and project conventions across sessions."),
+    statsBar,
+    editorCard
+  ];
+
+  if (knowledgeCard) pageElements.push(knowledgeCard);
+  pageElements.push(configCard);
+
+  page.replaceChildren(...pageElements);
+};
+
 /* ---------------- AGENT ---------------- */
 PAGES.agent = async function (page) {
   await loadState();

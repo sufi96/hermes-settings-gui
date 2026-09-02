@@ -3569,6 +3569,61 @@ pre.codeblock {
   color: var(--ink);
 }
 
+/* ================================================================
+   MEMORY MANAGEMENT PAGE
+================================================================ */
+.memory-editor-textarea {
+  width: 100%;
+  min-height: 280px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.memory-editor-textarea:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.15);
+  background: var(--bg);
+}
+.memory-entries-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+.memory-entry-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--line-subtle);
+  border-radius: 8px;
+  padding: 12px 16px;
+  transition: all 0.15s ease;
+}
+.memory-entry-card:hover {
+  border-color: var(--line);
+  background: var(--card);
+}
+.memory-entry-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.memory-entry-text {
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+
 
 
 

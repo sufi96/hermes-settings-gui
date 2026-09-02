@@ -1834,6 +1834,29 @@ class Handler(BaseHTTPRequestHandler):
             self._json(check_updates(force=force))
         elif path == "/api/dashboard/overview":
             self._json(dashboard_overview())
+        elif path == "/api/memory":
+            cfg = load_config()
+            mem_cfg = cfg.get("memory") or {}
+            mem_file = HERMES_HOME / "memories" / "MEMORY.md"
+            content = ""
+            mtime = 0
+            if mem_file.exists():
+                try:
+                    content = mem_file.read_text(encoding="utf-8", errors="ignore")
+                    mtime = mem_file.stat().st_mtime
+                except Exception as e:
+                    content = f"Error reading memory file: {e}"
+            char_limit = int(mem_cfg.get("memory_char_limit", 10000))
+            self._json({
+                "ok": True,
+                "content": content,
+                "char_count": len(content),
+                "char_limit": char_limit,
+                "memory_enabled": bool(mem_cfg.get("memory_enabled", True)),
+                "user_profile_enabled": bool(mem_cfg.get("user_profile_enabled", True)),
+                "path": str(mem_file),
+                "mtime": mtime,
+            })
         else:
             self._send(404, b'{"error": "not found"}')
 
@@ -2214,6 +2237,26 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True})
             elif path == "/api/update/apply":
                 self._json(apply_update())
+            elif path == "/api/memory/save":
+                content = body.get("content", "")
+                if not isinstance(content, str):
+                    raise ValueError("content must be a string")
+                mem_file = HERMES_HOME / "memories" / "MEMORY.md"
+                mem_file.parent.mkdir(parents=True, exist_ok=True)
+                mem_file.write_text(content, encoding="utf-8")
+                self._json({"ok": True, "char_count": len(content), "message": "Memory saved successfully ✓"})
+            elif path == "/api/memory/clear":
+                mem_file = HERMES_HOME / "memories" / "MEMORY.md"
+                if mem_file.exists():
+                    bak_dir = HERMES_HOME / ".curator_backups"
+                    bak_dir.mkdir(parents=True, exist_ok=True)
+                    bak_file = bak_dir / f"MEMORY-backup-{int(time.time())}.md"
+                    try:
+                        bak_file.write_text(mem_file.read_text(encoding="utf-8", errors="ignore"), encoding="utf-8")
+                    except Exception:
+                        pass
+                    mem_file.write_text("", encoding="utf-8")
+                self._json({"ok": True, "message": "Memory cleared and backed up to .curator_backups ✓"})
             elif path == "/api/backup":
                 self._json(run_hermes("backup", timeout=300))
             else:
