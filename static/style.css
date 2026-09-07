@@ -1699,7 +1699,7 @@ pre.codeblock {
 .skill-toolbar {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   margin-bottom: 8px;
   position: sticky;
@@ -1708,7 +1708,43 @@ pre.codeblock {
   padding: 8px 0;
   background: var(--bg);
 }
-.skill-toolbar select { min-width: 150px; }
+/* Search + both dropdowns stay on one row. min-width:0 is what makes that
+   hold: without it the search input's intrinsic width becomes a floor and
+   the flex line overflows into a wrap instead of the input shrinking. */
+.skill-filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.skill-search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.skill-filters select {
+  flex: 0 1 auto;
+  min-width: 118px;
+}
+.skill-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.skill-actions button { white-space: nowrap; }
+
+/* Narrow viewports: let it break up, actions first onto their own row, then
+   the filters themselves if there still isn't room. */
+@media (max-width: 850px) {
+  .skill-toolbar { flex-wrap: wrap; }
+  .skill-actions { width: 100%; }
+}
+@media (max-width: 600px) {
+  .skill-filters { flex-wrap: wrap; }
+  .skill-search { flex: 1 0 100%; }
+  .skill-filters select { flex: 1 1 auto; }
+}
 
 .skill-group {
   display: flex;

@@ -2464,7 +2464,7 @@ PAGES.skills = async function (page) {
   if (data.degraded) box.append(el("p", { class: "mp-status err", style: "margin:2px 0 14px;" }, data.degraded));
 
   /* ---- toolbar ---- */
-  const searchInput = el("input", { type: "text", placeholder: "🔍 Search name or description…", style: "flex:1;min-width:200px;" });
+  const searchInput = el("input", { type: "text", class: "skill-search", placeholder: "🔍 Search name or description…" });
   const catSel = el("select", {}, el("option", { value: "all" }, "All categories"),
     ...(data.categories || []).map(x => el("option", { value: x }, x)));
   catSel.value = skillsCategory;
@@ -2485,7 +2485,8 @@ PAGES.skills = async function (page) {
   refreshBtn.onclick = async () => { refreshBtn.disabled = true; await reloadSkills(); };
 
   box.append(el("div", { class: "skill-toolbar" },
-    searchInput, catSel, statusSel, newBtn, installBtn, refreshBtn));
+    el("div", { class: "skill-filters" }, searchInput, catSel, statusSel),
+    el("div", { class: "skill-actions" }, newBtn, installBtn, refreshBtn)));
 
   const listBox = el("div");
   box.append(listBox);
