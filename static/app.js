@@ -578,11 +578,21 @@ function modelPicker({ value = "", placeholder = "", initialModels = [], getProv
 
   return {
     root, input, panel,
-    setSuggestions(list2) {
+    // `force` exists because liveFetched was sticky: once Find models had
+    // succeeded once, this went permanently no-op, so switching provider left
+    // the previous endpoint's model list in the dropdown forever. A provider
+    // change invalidates that fetch, and says so by passing force.
+    setSuggestions(list2, { force = false } = {}) {
+      if (force) liveFetched = false;
       if (!liveFetched) {
         allModels = (list2 || []).slice();
+        filtered = allModels.slice();
         dl.replaceChildren(...allModels.map(m => el("option", { value: m })));
       }
+    },
+    setValue(v) {
+      input.value = v ?? "";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
     },
   };
 }
@@ -1170,18 +1180,31 @@ PAGES.model = async function (page) {
   provSel.onchange = () => {
     const pVal = provSel.value;
     const cp = (STATE.custom_providers || []).find(p => p.name === pVal);
-    picker.setSuggestions(modelsFor(pVal));
+    const bi = (typeof BUILTIN_PROVIDERS_INFO !== "undefined" ? BUILTIN_PROVIDERS_INFO : []).find(x => x.name === pVal);
+    const prevModel = picker.input.value.trim();
+
+    // Model ids are provider-scoped, so carrying one across a provider change
+    // leaves a value that does not exist on the new endpoint. The old code only
+    // filled the model when the field was EMPTY and only for custom providers,
+    // which is why the base URL moved and the model identifier did not.
+    const known = modelsFor(pVal);
+    picker.setSuggestions(known, { force: true });
+    const nextModel = (cp && cp.model) || known[0] || "";
+    picker.setValue(nextModel);
+
     if (cp) {
-      urlIn.value = cp.base_url || '';
-      if (cp.model && !picker.input.value.trim()) {
-        picker.input.value = cp.model;
-        picker.input.dispatchEvent(new Event('input', { bubbles: true }));
-      }
+      urlIn.value = cp.base_url || "";
     } else {
-      const bi = (typeof BUILTIN_PROVIDERS_INFO !== "undefined" ? BUILTIN_PROVIDERS_INFO : []).find(x => x.name === pVal);
-      if (bi && !bi.oauth) {
-        urlIn.placeholder = bi.base_url || "Default official URL";
-      }
+      // Official providers resolve their own endpoint; leaving the previous
+      // custom provider's URL here would save a base_url that overrides it.
+      urlIn.value = "";
+      if (bi && !bi.oauth) urlIn.placeholder = bi.base_url || "Default official URL";
+    }
+
+    if (prevModel && nextModel !== prevModel) {
+      toast(nextModel
+        ? `Model switched to ${nextModel} for ${pVal}`
+        : `Cleared the model — press Find models to list what ${pVal} offers`, "ok", 4000);
     }
     updateKeyCard(pVal);
   };
@@ -1369,10 +1392,13 @@ PAGES.model = async function (page) {
   page.replaceChildren(
     el("h1", { class: "pagetitle" }, "Main AI"),
     el("p", { class: "pagesub" }, "Configure your primary agent model, verify provider connectivity, manage model aliases, and run diagnostics."),
-    heroCard,
+    el("div", { class: "cfg-grid cfg-grid-top" },
+      el("div", { class: "cfg-col" }, heroCard),
+      el("div", { class: "cfg-col" }, keyCardContainer)
+    ),
     el("div", { class: "cfg-grid" },
-      el("div", { class: "cfg-col" }, modelCard, alCard),
-      el("div", { class: "cfg-col" }, keyCardContainer, diagCard)
+      el("div", { class: "cfg-col" }, modelCard),
+      el("div", { class: "cfg-col" }, alCard, diagCard)
     )
   );
 };

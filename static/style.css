@@ -1118,8 +1118,15 @@ table.rows td.actions button { padding: 5px 11px; font-size: 12.5px; }
 }
 .cfg-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .cfg-col > * { margin: 0; }
+.cfg-grid + .cfg-grid { margin-top: 16px; }
+/* Top row: the credentials card sits level with the engine hero and matches
+   its height, rather than the two stacking down the page. */
+.cfg-grid-top { align-items: stretch; }
+.cfg-grid-top .cfg-col > * { height: 100%; }
+.cfg-grid-top .hero-ai-card { margin-bottom: 0; }
 @media (max-width: 1050px) {
   .cfg-grid { grid-template-columns: 1fr; }
+  .cfg-grid-top .cfg-col > * { height: auto; }
 }
 
 /* --- Backup models --- */
