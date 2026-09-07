@@ -14,6 +14,7 @@ at startup (query param `token` or `X-Config-Token` header).
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import re
@@ -34,7 +35,7 @@ from pathlib import Path
 
 import yaml
 
-DECK_VERSION = "1.0.3"
+DECK_VERSION = "1.0.2"
 
 # --------------------------------------------------------------------------
 # Paths
@@ -81,6 +82,7 @@ ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 # Persistent token so the printed URL stays the same across restarts
 # (a fresh token per start would break bookmarks / the open tab).
 _TOKEN_FILE = Path(__file__).resolve().parent / ".deck-token"
+_PID_FILE = Path(__file__).resolve().parent / ".deck-pid"
 if _TOKEN_FILE.exists():
     _tok = _TOKEN_FILE.read_text(encoding="utf-8").strip()
     TOKEN = _tok if _tok else secrets.token_urlsafe(24)
@@ -1917,6 +1919,15 @@ def apply_update() -> dict:
 
             def _restart():
                 time.sleep(1.2)
+                # Hand the port over cleanly. The listening socket is closed
+                # BEFORE the replacement is spawned, because the deck now binds
+                # exclusively — leaving it open would make the new process fail
+                # to bind instead of silently sharing the port.
+                try:
+                    if SERVER[0] is not None:
+                        SERVER[0].server_close()
+                except Exception:
+                    pass
                 try:
                     kwargs = {}
                     if os.name == "nt":
@@ -2611,6 +2622,98 @@ class Handler(BaseHTTPRequestHandler):
 
 
 # --------------------------------------------------------------------------
+# Single-instance binding
+# --------------------------------------------------------------------------
+
+# Holds the live server so apply_update()'s restart thread can release the
+# listening socket before spawning the replacement.
+SERVER: list = [None]
+
+
+class DeckServer(ThreadingHTTPServer):
+    """HTTP server that refuses to share its port.
+
+    ``HTTPServer`` sets ``allow_reuse_address = 1`` (SO_REUSEADDR). On Linux
+    that only permits rebinding a socket in TIME_WAIT, but on Windows it lets a
+    second process **hijack a port another process is actively listening on** —
+    both bind successfully and Windows hands out incoming connections between
+    them nondeterministically. A failed in-app update left a DETACHED_PROCESS
+    orphan behind, so relaunching produced two decks on 8787 and roughly half
+    of every page's requests were answered by the stale pre-update server.
+
+    Binding exclusively turns that silent split into an immediate, explainable
+    failure at startup.
+    """
+
+    allow_reuse_address = False
+    daemon_threads = True
+
+    def server_bind(self):
+        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            # Belt and braces: SO_REUSEADDR off is enough on its own, but
+            # SO_EXCLUSIVEADDRUSE also blocks anyone else from hijacking us.
+            try:
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            except OSError:
+                pass
+        super().server_bind()
+
+
+def bind_server(port: int, wait_seconds: float = 15.0) -> "DeckServer":
+    """Bind exclusively, retrying briefly while a previous instance lets go.
+
+    The retry window exists for the in-app update handoff: the outgoing process
+    closes its socket and exits at roughly the same moment the replacement
+    starts, and a cold Python boot takes ~0.7s. Without a short wait that
+    handoff would race and the new deck would die on an "address in use".
+    """
+    deadline = time.time() + max(0.0, wait_seconds)
+    while True:
+        try:
+            return DeckServer(("127.0.0.1", port), Handler)
+        except OSError:
+            if time.time() >= deadline:
+                raise
+            time.sleep(0.25)
+
+
+def identify_port_occupant(port: int) -> str:
+    """'deck' if another Config Deck holds the port, 'other' otherwise."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=2) as c:
+            c.sendall(b"HEAD / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+            head = c.recv(400).decode("latin-1", "replace")
+        return "deck" if "HermesConfigDeck" in head else "other"
+    except Exception:
+        return "other"
+
+
+def write_pid_file(port: int) -> None:
+    """Record pid + port so the launchers can stop exactly THIS deck.
+
+    Matching on a command line like ``python server.py`` would be ambiguous
+    (any project can have a server.py), so the launchers read this file and
+    verify the pid before killing anything — an unrelated Python process is
+    never a candidate.
+    """
+    try:
+        _PID_FILE.write_text(f"{os.getpid()}\n{port}\n", encoding="utf-8")
+    except Exception:
+        return
+
+    def _cleanup() -> None:
+        try:
+            if _PID_FILE.exists():
+                recorded = _PID_FILE.read_text(encoding="utf-8").split()
+                if recorded and recorded[0] == str(os.getpid()):
+                    _PID_FILE.unlink()
+        except Exception:
+            pass
+
+    atexit.register(_cleanup)
+
+
+# --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
 
@@ -2624,7 +2727,24 @@ def main():
     HERMES_EXE = find_hermes_exe()
     reqs = check_system_requirements()
 
-    srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    try:
+        srv = bind_server(args.port)
+    except OSError as e:
+        occupant = identify_port_occupant(args.port)
+        print()
+        print("  [ERROR] Could not start on port %d: %s" % (args.port, e))
+        if occupant == "deck":
+            print("          Another Hermes Config Deck is already listening there.")
+            print("          Open the address it printed, or close it first:")
+            print("            powershell -NoProfile -File windows\\stop_previous.ps1"
+                  if os.name == "nt" else "            ./linux/stop_previous.sh")
+        else:
+            print("          Something else is using that port.")
+        print("          You can also pick another port:  python server.py --port 8788")
+        print()
+        raise SystemExit(1)
+    write_pid_file(args.port)
+    SERVER[0] = srv
     url = f"http://127.0.0.1:{args.port}/?token={TOKEN}"
     print()
     print("  ================================================================")

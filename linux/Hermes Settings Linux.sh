@@ -14,6 +14,15 @@ echo "          Hermes Agent - Config Deck (Linux/macOS)              "
 echo "================================================================"
 echo ""
 
+# 0. Stop a Config Deck left running by this folder (e.g. a detached orphan
+#    from a failed in-app update still holding the port). Verified by PID
+#    file - never touches unrelated Python processes.
+if [ -x "$ROOT_DIR/linux/stop_previous.sh" ]; then
+    "$ROOT_DIR/linux/stop_previous.sh" || true
+elif [ -f "$ROOT_DIR/linux/stop_previous.sh" ]; then
+    bash "$ROOT_DIR/linux/stop_previous.sh" || true
+fi
+
 # 1. Check Python 3 runtime
 if command -v python3 >/dev/null 2>&1; then
     PY_BIN="python3"

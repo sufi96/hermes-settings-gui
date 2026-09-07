@@ -1,6 +1,6 @@
 # Hermes Settings GUI — Control Deck
 
-[![Release](https://img.shields.io/badge/version-1.0.3-gold.svg)](https://github.com/sufi96/hermes-settings-gui)
+[![Release](https://img.shields.io/badge/version-1.0.2-gold.svg)](https://github.com/sufi96/hermes-settings-gui)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Security](https://img.shields.io/badge/security-localhost--only-brightgreen.svg)]()
@@ -22,15 +22,6 @@ A modern, local web interface, command center, and interactive dashboard for [No
 
 ---
 
-## 🩹 What's New in v1.0.3
-
-### 🔄 Reliable In-App Updates
-- **Fixed "This page isn't working" after updating:** The updater reloaded the browser on a fixed 2.2-second timer while the old server exited at 1.2s — leaving the replacement barely one second to boot and bind. On a slower disk (or with antivirus scanning the freshly pulled tree) the reload landed on a dead port and the browser showed an error, even though the server came up fine moments later.
-- **Readiness Polling:** The update flow now polls `/api/state` until the new server actually answers, then reloads — no fixed guess. It reports progress while waiting, gives a clear instruction if the server never returns, and reloads *sooner* than the old timer in the normal case.
-- **Cache-Busted Assets:** `app.js` and `style.css` are versioned per release, so an updated browser can no longer serve stale scripts against new markup (which left the new Skills tab stuck on "Loading…" after upgrading to v1.0.2).
-
----
-
 ## ✨ What's New in v1.0.2
 
 ### 🎒 Skills Library
@@ -38,6 +29,11 @@ A modern, local web interface, command center, and interactive dashboard for [No
 - **Real Load Status:** Backed by `hermes skills list`, so the page reports what actually loads on **this** machine — platform-gated skills (the macOS-only `apple` set on Windows, for example) are counted separately as *On disk* rather than silently inflating the total.
 - **Rich Metadata:** Descriptions and versions are read from each `SKILL.md` frontmatter, which the CLI never prints. Category filter, source/status badges, and a refresh control that busts the server-side cache.
 - **Fixed Dashboard Count:** The home *Installed Skills* card previously counted the `skills/<category>/` folders and listed those as if they were skills (showing "12 ACTIVE" for 51 real skills). It now shares one cached source with the Skills page, so the two can never disagree — and its shortcut finally lands on Skills instead of the unrelated Tools page.
+
+### 🔄 Reliable Updates & Single Instance
+- **One Deck Per Port:** The server now binds exclusively. Windows' `SO_REUSEADDR` previously let a second process bind a port another server was already listening on, so two decks could answer the same address with connections split between them at random — meaning a stale server could serve pages after an update. A duplicate now fails immediately with a clear message instead.
+- **No More Orphaned Servers:** A failed in-app update could leave a detached, console-less server holding the port. Both launchers now stop a previous deck before starting, identified by a `.deck-pid` file and verified (alive, is a Python process, running `server.py`) so an unrelated Python program is never touched — a recycled PID is reported and skipped, not killed.
+- **Reload Waits For The Server:** The updater polled a fixed 2.2-second timer while the outgoing server exited at 1.2s, leaving the replacement ~1 second to boot. On a slower disk that reload landed on a dead port and the browser showed "This page isn't working". It now polls until the new server actually answers, then reloads — reporting progress, and reloading sooner than the timer did.
 
 ### 🧠 Separated Model Reasoning
 - **Collapsible Thinking Block:** Assistant replies that carry reasoning now render it in a collapsed `▸ Thinking` panel above the answer instead of running the model's internal monologue straight into the response text.

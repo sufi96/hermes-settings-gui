@@ -15,6 +15,13 @@ echo           Hermes Agent - Config Deck (Windows)
 echo ================================================================
 echo.
 
+rem 0. Stop a Config Deck left running by this folder (e.g. a detached
+rem    orphan from a failed in-app update still holding the port).
+rem    Verified by PID file - never touches unrelated Python processes.
+if exist "%~dp0stop_previous.ps1" (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0stop_previous.ps1"
+)
+
 rem 1. Check Python installation
 where python >nul 2>nul
 if %errorlevel% neq 0 (

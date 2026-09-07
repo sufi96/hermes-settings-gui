@@ -5,6 +5,7 @@ __pycache__/
 
 # Authentication tokens & local secrets
 .deck-token
+.deck-pid
 .env
 *.local
 *.log
