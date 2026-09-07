@@ -464,6 +464,36 @@ def gateway_instances() -> list:
     return instances
 
 
+def gateway_pid_from_file() -> int | None:
+    """The PID recorded in gateway.pid, when that process is still alive.
+
+    _gateway_procs() matches on the command line, which Windows returns EMPTY
+    for processes it will not disclose (another session, or elevated). The
+    gateway then scans as zero instances while the pid file correctly says it
+    is running -- which is how the dashboard ended up claiming an online bot
+    with no PID behind it. Reading the file gives the UI a real number to show
+    instead of guessing.
+    """
+    try:
+        data = json.loads((HERMES_HOME / "gateway.pid").read_text(encoding="utf-8", errors="replace"))
+        pid = int(data.get("pid"))
+    except Exception:
+        return None
+    try:
+        if os.name == "nt":
+            import ctypes
+            k32 = ctypes.windll.kernel32
+            h = k32.OpenProcess(0x1000, False, pid)
+            if not h:
+                return None
+            k32.CloseHandle(h)
+        else:
+            os.kill(pid, 0)
+        return pid
+    except Exception:
+        return None
+
+
 def gateway_pids() -> list:
     """All live gateway process PIDs (any instance)."""
     pids = []
@@ -483,6 +513,7 @@ def telegram_status() -> dict:
         "allowed_users": [u.strip() for u in allowed.split(",") if u.strip()] if allowed else [],
         "home_channel": env.get("TELEGRAM_HOME_CHANNEL", ""),
         "gateway_running": gateway_running_fast(),
+        "gateway_pid": gateway_pid_from_file(),
         "gateway_pids": gateway_pids(),
         "gateway_instance_count": len(gateway_instances()),
         "gateway_instances": [", ".join(str(p) for p in inst) for inst in gateway_instances()],
@@ -1913,11 +1944,16 @@ def dashboard_overview() -> dict:
         active_jobs = [j for j in jobs if j.get("enabled", True) and j.get("state") != "paused"]
         out["gateways"] = {
             "telegram": {
+                # `running` is the GATEWAY PROCESS, not the bot. A bot with no
+                # token cannot be online however healthy that process is, so
+                # both flags are surfaced and the UI must combine them.
                 "running": bool(tg.get("gateway_running")),
                 "token_set": bool(tg.get("token_set")),
                 "token_masked": tg.get("token_masked", ""),
                 "allowed_users_count": len(tg.get("allowed_users", [])),
+                "pid": tg.get("gateway_pid"),
                 "pids": tg.get("gateway_pids", []),
+                "instance_count": tg.get("gateway_instance_count", 0),
             },
             "mcp": {
                 "count": len(mcp_servers),

@@ -682,7 +682,7 @@ async function showPage(name) {
   page.classList.toggle("providers-page", name === "providers");
   page.classList.toggle("memory-page", name === "memory");
   page.classList.toggle("automations-page", name === "automations");
-  page.classList.toggle("wide-page", name === "home" || name === "providers" || name === "chat" || name === "tools" || name === "memory" || name === "automations" || name === "skills" || name === "model" || name === "fallback");
+  page.classList.toggle("wide-page", name === "home" || name === "providers" || name === "chat" || name === "tools" || name === "memory" || name === "automations" || name === "skills" || name === "model" || name === "fallback" || name === "telegram");
   page.replaceChildren(el("div", { class: "loading" }, "Loading…"));
   if (PAGES[name]) {
     try {
@@ -813,14 +813,19 @@ PAGES.home = async function (page) {
   );
 
   // Hero Card 2: Gateways & Live Integrations
-  const isTgOnline = tg.running;
+  // The bot is only reachable when the gateway process is up AND a token
+  // exists. This used to read tg.running alone -- the gateway process state --
+  // so a running gateway with no token reported the bot as ONLINE.
+  const gwUp = !!tg.running;
+  const isTgOnline = gwUp && !!tg.token_set;
+  const gwPid = tg.pid || (tg.pids || [])[0] || null;
   const gwHeaderStatus = isTgOnline
     ? el("span", { class: "badge ok", style: "display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;" },
         el("span", { class: "dash-pulse-dot" }),
         "ONLINE"
       )
-    : (tg.token_set
-        ? el("span", { class: "badge warn", style: "font-size:11px;font-weight:700;" }, "STANDBY")
+    : (gwUp
+        ? el("span", { class: "badge warn", style: "font-size:11px;font-weight:700;" }, "NOT CONFIGURED")
         : el("span", { class: "badge standard", style: "font-size:11px;" }, "OFFLINE"));
 
   const gatewayCard = el("div", { class: "dash-hero-card hero-gateway" },
@@ -832,13 +837,22 @@ PAGES.home = async function (page) {
       el("div", { class: "dash-hero-val", style: "font-size:19px;display:flex;align-items:center;gap:8px;" },
         el("span", {}, "Telegram Bot"),
         el("span", { style: `font-size:13px;font-weight:700;color:${isTgOnline ? "var(--green)" : "var(--muted)"};` },
-          isTgOnline ? `Active (PID ${tg.pids?.join(", ") || "19552"})` : (tg.token_set ? "Token Armed" : "Disconnected")
+          isTgOnline ? "Active" : (tg.token_set ? "Gateway stopped" : "No bot token")
         )
       ),
       el("div", { class: "dash-hero-sub" },
         isTgOnline
-          ? `Serving ${tg.allowed_users_count || 1} allowed Telegram user · Polling daemon active`
-          : (tg.token_set ? "Token saved in .env · Gateway process not started" : "Configure TELEGRAM_BOT_TOKEN to chat from mobile")
+          ? (tg.allowed_users_count
+              ? `Serving ${tg.allowed_users_count} allowed user${tg.allowed_users_count === 1 ? "" : "s"} · polling active`
+              : "Polling active · no allowed users set, anyone who finds the bot can use it")
+          : (tg.token_set
+              ? "Token saved in .env · gateway process is not running"
+              : "Gateway is up, but no TELEGRAM_BOT_TOKEN is set — the bot cannot connect")
+      ),
+      el("div", { class: "dash-hero-sub", style: "margin-top:4px;" },
+        gwUp
+          ? `Gateway process ${gwPid ? "· PID " + gwPid : "running"} · ${tg.instance_count || 0} instance${(tg.instance_count || 0) === 1 ? "" : "s"} detected`
+          : "Gateway process not running"
       ),
       el("div", { style: "display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:10px;" },
         el("span", { class: "dash-ops-chip" }, `🔌 ${totalProviders} Providers`),
@@ -847,7 +861,7 @@ PAGES.home = async function (page) {
       )
     ),
     el("div", { class: "dash-hero-footer" },
-      el("span", { class: "dim small" }, isTgOnline ? "Background process live" : "Setup telegram bot"),
+      el("span", { class: "dim small" }, isTgOnline ? "Background process live" : (tg.token_set ? "Start the gateway" : "Add a bot token")),
       el("button", { class: "dash-hero-action", onclick: () => showPage("telegram") }, "Gateway Settings →")
     )
   );
@@ -992,7 +1006,8 @@ PAGES.home = async function (page) {
     el("div", { class: "dash-gateway-row" },
       el("div", { class: "dash-gateway-left" },
         el("span", {}, "✈️ Telegram Bot:"),
-        el("span", { style: `font-size:11.5px;color:${isTgOnline ? "var(--green)" : "var(--muted)"};font-weight:600;` }, isTgOnline ? `Online (PID ${tg.pids?.[0]})` : "Offline")
+        el("span", { style: `font-size:11.5px;color:${isTgOnline ? "var(--green)" : "var(--muted)"};font-weight:600;` },
+          isTgOnline ? (gwPid ? `Online · PID ${gwPid}` : "Online") : (tg.token_set ? "Gateway stopped" : "No token"))
       ),
       el("button", { class: "ghost small", style: "font-size:11px;padding:2px 7px;", onclick: () => showPage("telegram") }, "Manage →")
     ),
@@ -3599,46 +3614,70 @@ PAGES.automations = async function (page) {
 PAGES.telegram = async function (page) {
   const st = await api("/api/telegram/status");
 
+  const gw = !!st.gateway_running;                 // the background process
+  const tokenSet = !!st.token_set;
+  const botOnline = gw && tokenSet;                // the bot itself
+  const gwPid = st.gateway_pid || (st.gateway_pids || [])[0] || null;
+  const instCount = st.gateway_instance_count ?? (st.gateway_pids || []).length;
+
   const wrap = el("div");
   wrap.append(
     el("h1", { class: "pagetitle" }, "Telegram Bot"),
     el("p", { class: "pagesub" }, "Chat with Hermes from your phone. This page walks you through everything — no terminal needed."),
   );
 
-  /* ---- status strip ---- */
-  const gw = st.gateway_running;
-  const statCard = el("div", { class: "card" },
-    el("h2", {}, "Status"),
-    el("div", { class: "setting-row" },
-      el("div", {},
-        el("div", { class: "s-label" }, "Bot token"),
-        el("div", { class: "s-desc" }, st.token_set ? "Saved (" + st.token_masked + ")" : "Not set yet — step 1 below")),
-      st.token_set
-        ? el("span", { class: "badge ok" }, "saved")
-        : el("span", { class: "badge miss" }, "missing")),
-    el("div", { class: "setting-row" },
-      el("div", {},
-        el("div", { class: "s-label" }, "Allowed users"),
-        el("div", { class: "s-desc" }, st.allowed_users.length
-          ? st.allowed_users.join(", ")
-          : "Nobody yet — without this, anyone who finds your bot can use it")),
-      st.allowed_users.length
-        ? el("span", { class: "badge ok" }, st.allowed_users.length + " user(s)")
-        : el("span", { class: "badge miss" }, "none")),
-    el("div", { class: "setting-row" },
-      el("div", {},
-        el("div", { class: "s-label" }, "Gateway (the background runner that connects Telegram)"),
-        el("div", { class: "s-desc" }, gw ? "Running — your bot should answer messages" : "Not running — start it below after saving your token")),
-      gw
-        ? el("span", { class: "badge ok" }, "running")
-        : el("span", { class: "badge miss" }, "stopped")),
+  /* ---- status hero ----
+     The gateway process and the bot are two different things, and conflating
+     them is what made the dashboard claim an online bot with no token. The
+     verdict line reports the bot; the tiles below show each part separately. */
+  const verdict = botOnline
+    ? { cls: "ok", label: "BOT ONLINE", text: "Your bot is connected and answering messages." }
+    : tokenSet
+      ? { cls: "warn", label: "BOT OFFLINE", text: "Token is saved, but the gateway process is not running. Start it below." }
+      : { cls: "miss", label: "BOT OFFLINE", text: gw
+            ? "The gateway process is running, but no bot token is set — there is nothing for it to connect to."
+            : "No bot token yet. Follow the steps below, then start the gateway." };
+
+  const tile = (label, value, state, note) => el("div", { class: "tg-tile tg-" + state },
+    el("div", { class: "tg-tile-label" }, label),
+    el("div", { class: "tg-tile-val" }, value),
+    note ? el("div", { class: "tg-tile-note" }, note) : null);
+
+  const statusHero = el("div", { class: "tg-hero" },
+    el("div", { class: "tg-hero-head" },
+      el("div", { class: "tg-hero-title" },
+        el("span", {}, "✈️ Connection status"),
+        el("span", { class: "badge " + (verdict.cls === "miss" ? "standard" : verdict.cls) }, verdict.label)),
+      el("div", { class: "tg-hero-sub" }, verdict.text)),
+    el("div", { class: "tg-tiles" },
+      tile("Bot token", tokenSet ? "Saved" : "Missing",
+        tokenSet ? "ok" : "miss",
+        tokenSet ? st.token_masked : "Step 1 below"),
+      tile("Allowed users", st.allowed_users.length ? String(st.allowed_users.length) : "None",
+        st.allowed_users.length ? "ok" : "miss",
+        st.allowed_users.length ? st.allowed_users.join(", ") : "Anyone who finds the bot could use it"),
+      tile("Gateway process", gw ? "Running" : "Stopped",
+        gw ? "ok" : "miss",
+        gw ? (gwPid ? "PID " + gwPid : "PID unavailable") : "Start it below"),
+      tile("Instances", String(instCount),
+        instCount === 1 ? "ok" : (instCount === 0 ? "warn" : "miss"),
+        instCount > 1 ? "Duplicates fight over the bot" :
+        (instCount === 0 && gw ? "Process list unreadable — see note" : "One healthy instance"))
+    ),
+    // Windows returns an empty command line for processes it will not disclose,
+    // so the scan can legitimately find nothing while the pid file is correct.
+    (gw && instCount === 0)
+      ? el("p", { class: "tg-hero-note" },
+          "The pid file reports a live gateway (PID " + (gwPid || "?") + ") but no matching process could be listed. " +
+          "Windows hides the command line of processes started in another session or elevated, which is usually harmless — " +
+          "if the bot does not answer, stop and start the gateway below.")
+      : null
   );
-  wrap.append(statCard);
+  wrap.append(statusHero);
 
   /* ---- guided setup card ---- */
-  const stepNote = (n, text) => el("li", {},
-    el("b", {}, n + ". "), text);
-  wrap.append(card("How to get your bot token (5 minutes, one time only)", "Do this in the Telegram app itself — this page can't do it for you.",
+  const stepNote = (n, text) => el("li", {}, el("b", {}, n + ". "), text);
+  const setupCard = card("How to get your bot token (5 minutes, one time only)", "Do this in the Telegram app itself — this page can't do it for you.",
     el("ol", { style: "margin:0;padding-left:22px;line-height:1.9" },
       stepNote("open", "In Telegram, open a chat with ", el("b", {}, "@BotFather"), " (t.me/BotFather) — the official bot maker."),
       stepNote("create", "Send ", el("span", { class: "mono" }, "/newbot"), ". Pick any display name, then a username ending in ", el("span", { class: "mono" }, "bot"), " (e.g. ", el("span", { class: "mono" }, "my_hermes_bot"), ")."),
@@ -3647,10 +3686,10 @@ PAGES.telegram = async function (page) {
     ),
     el("p", { class: "small dim", style: "margin:10px 0 0" },
       "Tip: also send ", el("span", { class: "mono" }, "/setcommands"), " to BotFather to give your bot a tidy / menu (help, new, sethome)."),
-  ));
+  );
 
   /* ---- token + users form ---- */
-  const tokenIn = el("input", { type: "password", placeholder: st.token_set ? "(saved — paste a new one to replace)" : "123456789:ABCdefGHIjklMNOpqrSTUvwxYZ" });
+  const tokenIn = el("input", { type: "password", placeholder: tokenSet ? "(saved — paste a new one to replace)" : "123456789:ABCdefGHIjklMNOpqrSTUvwxYZ" });
   const usersIn = el("input", { type: "text", value: st.allowed_users.join(", "), placeholder: "123456789, 987654321 (comma-separated numbers)" });
   const homeIn = el("input", { type: "text", value: st.home_channel || "", placeholder: "leave empty — your private chat is used automatically" });
 
@@ -3682,7 +3721,7 @@ PAGES.telegram = async function (page) {
     } });
   });
 
-  wrap.append(card("Connect your bot", "Paste the token and your user ID from the steps above.",
+  const connectCard = card("Connect your bot", "Paste the token and your user ID from the steps above.",
     field("Bot token (from @BotFather)", tokenIn,
       "Anyone with this token controls your bot — it's stored in .env, never shown in full."),
     field("Allowed user IDs", usersIn,
@@ -3692,38 +3731,37 @@ PAGES.telegram = async function (page) {
     el("div", { class: "btnrow" }, verifyBtn),
     verifyOut,
     el("div", { class: "savebar" }, sb.btn, sb.status),
-  ));
+  );
 
   /* ---- gateway control ---- */
-  const instCount = st.gateway_instance_count ?? (st.gateway_pids || []).length;
   const gwOut = el("pre", { class: "codeblock", hidden: true });
-  const gwBtnRow = el("div", { class: "btnrow" },
-    el("button", { class: "primary", onclick: async (ev) => {
-      const btn = ev.target.closest("button");
-      btn.disabled = true;
-      btn.textContent = "Starting… (up to 30s)";
-      const r = await api("/api/gateway/start", { body: {} });
-      btn.disabled = false;
-      btn.textContent = "▶ Start gateway (brings the bot online)";
-      toast(r.ok ? "Gateway started — give it ~10 seconds, then message your bot on Telegram." : "Could not start: " + r.message,
-            r.ok ? "ok" : "err", 10000);
-      showPage("telegram");
-    } }, "▶ Start gateway (brings the bot online)"),
-    el("button", { class: "danger", onclick: async (ev) => {
-      const btn = ev.target.closest("button");
-      btn.disabled = true;
-      const r = await api("/api/gateway/stop", { body: {} });
-      btn.disabled = false;
-      toast(r.ok ? "Gateway stopped." : "Could not stop: " + r.message, r.ok ? "ok" : "err");
-      showPage("telegram");
-    } }, "■ Stop gateway"),
-    el("button", { onclick: async () => {
-      gwOut.hidden = false;
-      gwOut.textContent = "Loading log…";
-      const r = await api("/api/gateway/logs");
-      gwOut.textContent = r.tail || r.text || r.message || "(empty)";
-    } }, "📄 View gateway log"),
-  );
+  const startBtn = el("button", { class: "primary" }, "▶ Start gateway");
+  startBtn.onclick = async () => {
+    startBtn.disabled = true;
+    startBtn.textContent = "Starting… (up to 30s)";
+    const r = await api("/api/gateway/start", { body: {} });
+    startBtn.disabled = false;
+    startBtn.textContent = "▶ Start gateway";
+    toast(r.ok ? "Gateway started — give it ~10 seconds, then message your bot on Telegram." : "Could not start: " + r.message,
+          r.ok ? "ok" : "err", 10000);
+    showPage("telegram");
+  };
+  const stopBtn = el("button", { class: "danger" }, "■ Stop gateway");
+  stopBtn.onclick = async () => {
+    stopBtn.disabled = true;
+    const r = await api("/api/gateway/stop", { body: {} });
+    stopBtn.disabled = false;
+    toast(r.ok ? "Gateway stopped." : "Could not stop: " + r.message, r.ok ? "ok" : "err");
+    showPage("telegram");
+  };
+  const logBtn = el("button", {}, "📄 View gateway log");
+  logBtn.onclick = async () => {
+    gwOut.hidden = false;
+    gwOut.textContent = "Loading log…";
+    const r = await api("/api/gateway/logs");
+    gwOut.textContent = r.tail || r.text || r.message || "(empty)";
+  };
+
   const dupWarning = instCount > 1
     ? el("div", { class: "note", style: "border-color:#d48989;background:#fdeeee;color:#7c2d2d" },
         el("b", {}, "⚠ " + instCount + " gateway instances are running. "),
@@ -3736,21 +3774,34 @@ PAGES.telegram = async function (page) {
         } }, "Stop all duplicates"),
         " then press Start gateway.")
     : null;
-  wrap.append(card("Gateway control", "The gateway is the background program that keeps your bot connected to Telegram.",
-    gw ? el("p", { class: "small green", style: "margin:0 0 10px" }, "✓ Gateway is running" + (instCount === 1 ? " (one instance — healthy)." : " (" + instCount + " instances — see warning below)."))
-       : el("p", { class: "small red", style: "margin:0 0 10px" }, "Gateway is not running. Save your token first, then press Start."),
+
+  // Starting a gateway with no token can only produce a process that connects
+  // to nothing, so say so instead of letting it look like progress.
+  const tokenFirstNote = (!tokenSet)
+    ? el("p", { class: "small dim", style: "margin:0 0 10px;" },
+        "Save a bot token first — without one the gateway starts but the bot stays offline.")
+    : null;
+
+  const gatewayCard = card("Gateway control", "The gateway is the background program that keeps your bot connected to Telegram.",
+    tokenFirstNote || "",
     dupWarning || "",
-    gwBtnRow, gwOut));
+    el("div", { class: "btnrow" }, startBtn, stopBtn, logBtn),
+    gwOut);
 
   /* ---- usage tips ---- */
-  wrap.append(card("Once it's running", "things you can do in Telegram",
+  const tipsCard = card("Once it's running", "things you can do in Telegram",
     el("ul", { style: "margin:0;padding-left:20px;line-height:1.9" },
       el("li", {}, "Send any message to your bot — Hermes replies, with all its tools."),
       el("li", {}, "Voice messages are auto-transcribed (works best with ", el("b", {}, "Display & Voice → Speech to text"), " enabled)."),
       el("li", {}, el("span", { class: "mono" }, "/new"), " starts a fresh chat · ", el("span", { class: "mono" }, "/model"), " switches AI · ", el("span", { class: "mono" }, "/personality"), " changes style."),
       el("li", {}, "Add it to a group and @mention it — tell us if you want group settings and we'll wire them here."),
       el("li", {}, "Windows note: the gateway runs as a background window. To auto-start on login, run ", el("span", { class: "mono" }, "hermes gateway install"), " once in a terminal."),
-    )));
+    ));
+
+  wrap.append(el("div", { class: "cfg-grid" },
+    el("div", { class: "cfg-col" }, connectCard, setupCard),
+    el("div", { class: "cfg-col" }, gatewayCard, tipsCard)
+  ));
 
   page.replaceChildren(...wrap.children);
 };
