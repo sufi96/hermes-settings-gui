@@ -1,6 +1,6 @@
 # Hermes Settings GUI — Control Deck
 
-[![Release](https://img.shields.io/badge/version-1.0.2-gold.svg)](https://github.com/sufi96/hermes-settings-gui)
+[![Release](https://img.shields.io/badge/version-1.0.3-gold.svg)](https://github.com/sufi96/hermes-settings-gui)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Security](https://img.shields.io/badge/security-localhost--only-brightgreen.svg)]()
@@ -19,6 +19,15 @@ A modern, local web interface, command center, and interactive dashboard for [No
 
 ### 💬 Interactive Chat Studio
 ![Hermes Interactive Chat](assets/screenshot_chat.png)
+
+---
+
+## 🩹 What's New in v1.0.3
+
+### 🔄 Reliable In-App Updates
+- **Fixed "This page isn't working" after updating:** The updater reloaded the browser on a fixed 2.2-second timer while the old server exited at 1.2s — leaving the replacement barely one second to boot and bind. On a slower disk (or with antivirus scanning the freshly pulled tree) the reload landed on a dead port and the browser showed an error, even though the server came up fine moments later.
+- **Readiness Polling:** The update flow now polls `/api/state` until the new server actually answers, then reloads — no fixed guess. It reports progress while waiting, gives a clear instruction if the server never returns, and reloads *sooner* than the old timer in the normal case.
+- **Cache-Busted Assets:** `app.js` and `style.css` are versioned per release, so an updated browser can no longer serve stale scripts against new markup (which left the new Skills tab stuck on "Loading…" after upgrading to v1.0.2).
 
 ---
 

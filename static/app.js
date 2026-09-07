@@ -4922,12 +4922,31 @@ function openUpdateModal(info) {
       const r = await api("/api/update/apply", { body: {} });
       if (r.ok) {
         statusArea.className = "update-status-area success";
-        statusArea.innerHTML = "<b>✓ Update applied successfully!</b><p style='margin:4px 0 0;font-size:12px;'>Restarting server and reloading in 2 seconds…</p>";
+        statusArea.innerHTML = "<b>✓ Update applied successfully!</b><p id='update-wait' style='margin:4px 0 0;font-size:12px;'>Restarting server…</p>";
         cancelBtn.remove();
         applyBtn.remove();
-        setTimeout(() => {
-          window.location.reload();
-        }, 2200);
+        // Wait for the REPLACEMENT server to answer before reloading. The old
+        // process exits ~1.2s after this response and the new one needs ~0.7s+
+        // to import and bind, so a fixed delay raced that gap: on a slower disk
+        // (or with AV scanning the freshly pulled tree) the reload landed on a
+        // dead port and the browser showed "This page isn't working". Poll
+        // instead — the moment it responds we reload, so this is also faster.
+        const waitMsg = document.getElementById("update-wait");
+        const deadline = Date.now() + 90000;
+        const ping = async () => {
+          try {
+            const res = await fetch("/api/state", { headers: { "X-Config-Token": TOKEN }, cache: "no-store" });
+            if (res.ok) { window.location.reload(); return; }
+          } catch (_) { /* server still down — keep waiting */ }
+          if (Date.now() > deadline) {
+            if (waitMsg) waitMsg.textContent = "Server did not come back. Run start.bat again and open the address it prints.";
+            return;
+          }
+          if (waitMsg) waitMsg.textContent = "Waiting for the server to come back up… (" +
+            Math.round((Date.now() - (deadline - 90000)) / 1000) + "s)";
+          setTimeout(ping, 300);
+        };
+        setTimeout(ping, 1400);
       } else {
         statusArea.className = "update-status-area error";
         statusArea.textContent = "✕ Update failed: " + (r.message || "Unknown error");
