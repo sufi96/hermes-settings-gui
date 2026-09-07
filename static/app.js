@@ -354,7 +354,7 @@ function renderTestResultCard(container, { state, model, provider, reply, error,
 }
 
 /* ================================================================
-   MODEL PICKER — text input + "Find models" (live fetch) + a
+   MODEL PICKER — text input + a searchable dropdown that live-fetches + a
    SEARCHABLE dropdown (filter matches anywhere in the model name,
    not just the start) + "Test model". Manual typing always works.
 ================================================================ */
@@ -368,18 +368,28 @@ function modelPicker({ value = "", placeholder = "", initialModels = [], getProv
 
   const dl = el("datalist", { id: "dl-" + id },
     allModels.map(m => el("option", { value: m })));
-  const input = el("input", { type: "text", value, placeholder: placeholder || "model id — type it, or press Find models" });
+  const input = el("input", { type: "text", value, placeholder: placeholder || "model id — type it, or open the list with 🔍" });
   input.setAttribute("list", "dl-" + id);
 
   /* ---- searchable dropdown panel ---- */
-  const search = el("input", { type: "text", placeholder: "Type to filter — matches anywhere in the name (e.g. glm, sonnet, free)" });
+  const search = el("input", { type: "text", placeholder: "Type to filter — matches anywhere in the name (e.g. glm, sonnet)" });
+  let freeOnly = false;
+  const freeBtn = el("button", { type: "button", class: "mpd-chip", title: "Show only models with “free” in the id" }, "Free");
+  freeBtn.onclick = () => {
+    freeOnly = !freeOnly;
+    freeBtn.classList.toggle("active", freeOnly);
+    renderList();
+    search.focus();
+  };
+  const filterBar = el("div", { class: "mpd-filterbar" }, search, freeBtn);
   const list = el("div", { class: "mpd-list" });
   const countLabel = el("div", { class: "mpd-count" });
-  const panel = el("div", { class: "mpd", hidden: true }, search, list, countLabel);
+  const panel = el("div", { class: "mpd", hidden: true }, filterBar, list, countLabel);
 
   function matches(q, m) {
-    if (!q) return true;
     const mm = m.toLowerCase();
+    if (freeOnly && !mm.includes("free")) return false;
+    if (!q) return true;
     return q.toLowerCase().split(/\s+/).every(w => mm.includes(w));  // every word must appear somewhere
   }
   function renderList() {
@@ -387,7 +397,9 @@ function modelPicker({ value = "", placeholder = "", initialModels = [], getProv
     list.replaceChildren();
     if (!filtered.length) {
       list.append(el("div", { class: "mpd-empty" },
-        allModels.length ? "No models match “" + search.value + "”." : "No models yet — press 🔍 Find models first."));
+        allModels.length
+          ? (freeOnly ? "No free models match that filter." : "No models match “" + search.value + "”.")
+          : "No models found for this provider."));
     } else {
       filtered.forEach(m => {
         const isSel = m === input.value;
@@ -407,13 +419,46 @@ function modelPicker({ value = "", placeholder = "", initialModels = [], getProv
   function choose(m) {
     input.value = m;
     input.dispatchEvent(new Event("change", { bubbles: true }));
-    panel.hidden = true;
+    closePanel();
+  }
+  // The panel is moved to <body> and positioned fixed while open. Inside a
+  // modal it used to be clipped: .modal-body is overflow-y:auto, and an
+  // absolutely positioned child cannot escape a scroll container no matter how
+  // high its z-index, so the list vanished behind the modal footer.
+  function placePanel() {
+    const r = inputRow.getBoundingClientRect();
+    const margin = 8;
+    const below = window.innerHeight - r.bottom - margin;
+    const above = r.top - margin;
+    const drop = below >= 220 || below >= above;   // flip up when there is more room there
+    panel.style.position = "fixed";
+    panel.style.left = r.left + "px";
+    panel.style.width = r.width + "px";
+    panel.style.maxHeight = Math.max(180, (drop ? below : above)) + "px";
+    if (drop) {
+      panel.style.top = (r.bottom + 6) + "px";
+      panel.style.bottom = "auto";
+    } else {
+      panel.style.bottom = (window.innerHeight - r.top + 6) + "px";
+      panel.style.top = "auto";
+    }
   }
   function openPanel() {
+    if (panel.parentNode !== document.body) document.body.append(panel);
     panel.hidden = false;
+    freeOnly = false;
+    freeBtn.classList.remove("active");
     search.value = "";
     renderList();
+    placePanel();
+    window.addEventListener("resize", placePanel);
+    window.addEventListener("scroll", placePanel, true);
     setTimeout(() => search.focus(), 30);
+  }
+  function closePanel() {
+    panel.hidden = true;
+    window.removeEventListener("resize", placePanel);
+    window.removeEventListener("scroll", placePanel, true);
   }
   search.oninput = renderList;
   search.onkeydown = (e) => {
@@ -431,25 +476,32 @@ function modelPicker({ value = "", placeholder = "", initialModels = [], getProv
       const pick = filtered[activeIdx >= 0 ? activeIdx : 0];
       if (pick) choose(pick);
     } else if (e.key === "Escape") {
-      panel.hidden = true;
+      closePanel();
     }
   };
   // click outside closes the panel
   document.addEventListener("click", (e) => {
     if (panel.hidden) return;
-    if (!panel.contains(e.target) && e.target !== input && !dropBtn.contains(e.target)) panel.hidden = true;
+    if (!panel.contains(e.target) && e.target !== input && !dropBtn.contains(e.target)) closePanel();
   });
 
-  const dropBtn = el("button", { class: "mp-btn mp-drop-btn", onclick: () => { panel.hidden ? openPanel() : (panel.hidden = true); } }, "▾");
-  dropBtn.title = "Open the searchable model list";
+  // This button replaced the separate "Find models" action: opening the list is
+  // the same intent as loading it, so the first open fetches and every later
+  // open just reopens the cached list.
+  const dropBtn = el("button", { class: "mp-btn mp-drop-btn", type: "button" },
+    el("span", { class: "mp-drop-ico" }, "🔍"),
+    el("span", { class: "mp-caret" }, "▾"));
+  dropBtn.title = "Browse this provider's models — loads the list the first time";
+  dropBtn.onclick = async () => {
+    if (!panel.hidden) { closePanel(); return; }
+    if (liveFetched || allModels.length) { openPanel(); return; }
+    await findModels();
+  };
 
   const inputRow = el("div", { class: "mp-input-row" }, input, dropBtn);
 
   const status = el("div", { class: "mp-status", hidden: true });
   const testCard = el("div", { class: "model-test-card-wrap" });
-
-  const findBtn = el("button", { class: "mp-btn", onclick: findModels }, "🔍 Find models");
-  findBtn.title = "Test the connection and load this provider's model list";
 
   const testBtn = el("button", { class: "mp-btn", onclick: testModel }, "✉ Test model");
   testBtn.title = "Send a tiny test message to the model in the box to check it really answers";
@@ -471,14 +523,15 @@ function modelPicker({ value = "", placeholder = "", initialModels = [], getProv
     apiKeyBtn.title = "View, copy or change provider API key";
   }
 
-  const actionsRow = el("div", { class: "mp-actions-row" }, findBtn, testBtn, speedBtn, apiKeyBtn);
+  const actionsRow = el("div", { class: "mp-actions-row" }, testBtn, speedBtn, apiKeyBtn);
 
   async function findModels() {
     const p = (typeof getProvider === "function" ? getProvider() : null) || {};
     status.hidden = false;
     status.className = "mp-status dim";
     status.textContent = "Connecting to " + (p.provider || "the server") + "…";
-    findBtn.disabled = true;
+    dropBtn.disabled = true;
+    dropBtn.classList.add("is-loading");
     try {
       const r = await api("/api/probe/provider", { body: { provider: p.provider || "", base_url: p.base_url || "" } });
       if (r.ok) {
@@ -494,12 +547,17 @@ function modelPicker({ value = "", placeholder = "", initialModels = [], getProv
       } else {
         status.className = "mp-status err";
         status.textContent = "✗ " + (r.message || "couldn't connect");
+        // A failed probe should not strand the user: any cached models are
+        // still worth browsing.
+        if (allModels.length) openPanel();
       }
     } catch (e) {
       status.className = "mp-status err";
       status.textContent = "✗ " + e.message;
+      if (allModels.length) openPanel();
     } finally {
-      findBtn.disabled = false;
+      dropBtn.disabled = false;
+      dropBtn.classList.remove("is-loading");
     }
   }
 
@@ -1172,7 +1230,7 @@ PAGES.model = async function (page) {
 
   const picker = modelPicker({
     value: m.default || "",
-    placeholder: "e.g. anthropic/claude-3.7-sonnet — type freely or press Find models",
+    placeholder: "e.g. anthropic/claude-3.7-sonnet — type freely, or open the list with 🔍",
     initialModels: modelsFor(currentProvider),
     getProvider: () => ({ provider: provSel.value, base_url: urlIn.value.trim() }),
   });
@@ -1204,7 +1262,7 @@ PAGES.model = async function (page) {
     if (prevModel && nextModel !== prevModel) {
       toast(nextModel
         ? `Model switched to ${nextModel} for ${pVal}`
-        : `Cleared the model — press Find models to list what ${pVal} offers`, "ok", 4000);
+        : `Cleared the model — open the 🔍 list to see what ${pVal} offers`, "ok", 4000);
     }
     updateKeyCard(pVal);
   };
@@ -1236,7 +1294,7 @@ PAGES.model = async function (page) {
 
   const modelCard = card("Engine & Model Configuration", "Configure the primary language model and provider settings.",
     field("Provider", provSel, "Select an official AI platform or one of your custom endpoints."),
-    field("Model identifier", picker.root, "Find models retrieves live available models. Test model verifies reply capability, and Benchmark measures tokens per second."),
+    field("Model identifier", picker.root, "Open the 🔍 list to load this provider's live model catalog. Test model verifies reply capability, and Benchmark measures tokens per second."),
     field("Server address (base URL)", urlIn, "Only required for custom endpoints or proxies; official providers use their standard cloud endpoints automatically."),
     field("Context window limit (optional)", ctxIn, "Override maximum token context length if needed by your model or workflow."),
     el("div", { class: "savebar", style: "margin-top:18px" }, sb.btn, sb.status)
@@ -1718,7 +1776,7 @@ function openEditCustomModal(p) {
     const urlIn = el("input", { type: "text", value: p.base_url || "", style: "width:100%" });
     const picker = modelPicker({
       value: p.model || "",
-      placeholder: "default model — type or press Find models",
+      placeholder: "default model — type it, or open the list with 🔍",
       initialModels: p.models || [],
       getProvider: () => ({ provider: nameIn.value.trim() || p.name, base_url: urlIn.value.trim() || p.base_url, keyEnv: p.key_env }),
       keyEnv: p.key_env,
@@ -1764,7 +1822,7 @@ function openProviderModelsModal(p) {
 
     const picker = modelPicker({
       value: isMainAi ? (STATE.model?.default || "") : "",
-      placeholder: "Model id — type or press Find models",
+      placeholder: "Model id — type it, or open the list with 🔍",
       initialModels: modelsFor(p.name),
       getProvider: () => ({ provider: p.name, base_url: p.base_url, keyEnv: keyInfo.keyEnv }),
       keyEnv: (keyInfo.keyNeeded && keyInfo.keyEnv) ? keyInfo.keyEnv : null,
@@ -1773,7 +1831,7 @@ function openProviderModelsModal(p) {
 
     body.append(
       el("p", { class: "dim small", style: "margin-bottom:14px" }, p.desc || ""),
-      field("Explore models", picker.root, "Find models retrieves live catalog. Test model sends a ping message, and Benchmark speed measures tokens/sec.")
+      field("Explore models", picker.root, "Open the 🔍 list to load the live catalog. Test model sends a ping message, and Benchmark speed measures tokens/sec.")
     );
 
     const saveBtn = el("button", {
@@ -1801,6 +1859,51 @@ function openProviderModelsModal(p) {
       el("button", { onclick: closeModal }, "Close"),
       saveBtn
     );
+  });
+}
+
+function openAddProviderModal() {
+  openModal("Add a custom provider", (body, actions) => {
+    const aName = el("input", { type: "text", placeholder: "e.g. My-Ollama or TokenRouter" });
+    const aUrl = el("input", { type: "text", placeholder: "http://localhost:11434/v1" });
+    const aKey = el("input", { type: "password", placeholder: "leave empty if none needed" });
+    // The env var name is derived from the host, so showing it up front makes
+    // it obvious where the key will be stored.
+    const keyHint = el("div", { class: "dim small", style: "margin-top:4px;font-family:var(--font-mono);" }, "");
+    const syncHint = () => {
+      const url = aUrl.value.trim();
+      const host = url.replace(/^https?:\/\//, "").split("/")[0];
+      keyHint.textContent = host
+        ? "Key will be saved as HERMES_CUSTOM_" + host.toUpperCase().replace(/[^A-Z0-9]+/g, "_") + "_API_KEY"
+        : "";
+    };
+    aUrl.oninput = syncHint;
+
+    body.append(
+      el("p", { class: "dim small", style: "margin:0 0 12px;" },
+        "Connect any OpenAI-compatible server — vLLM, Ollama, LM Studio, LiteLLM or a custom proxy."),
+      field("Display name", aName),
+      field("Server address (base URL)", aUrl, "Must start with http:// or https://"),
+      field("API key (optional)", aKey, "Skip this for local servers like Ollama."),
+      keyHint
+    );
+
+    const add = el("button", { class: "primary" }, "Add provider");
+    add.onclick = async () => {
+      const name = aName.value.trim(), url = aUrl.value.trim();
+      if (!name) { toast("Give it a display name", "err"); return; }
+      if (!/^https?:\/\//.test(url)) { toast("Server address must start with http:// or https://", "err"); return; }
+      add.disabled = true;
+      const provs = JSON.parse(JSON.stringify(STATE.config.custom_providers || []));
+      const host = url.replace(/^https?:\/\//, "").split("/")[0];
+      const keyEnv = "HERMES_CUSTOM_" + host.toUpperCase().replace(/[^A-Z0-9]+/g, "_") + "_API_KEY";
+      provs.push({ name, base_url: url, key_env: keyEnv, model: "", models: {}, models_discovered: false });
+      if (aKey.value) await api("/api/env/set", { body: { key: keyEnv, value: aKey.value } });
+      const r = await api("/api/providers", { body: { providers: provs } });
+      if (r.ok) { toast("Custom provider added ✓", "ok", 5000); closeModal(); showPage("providers"); }
+      else { toast("Could not add: " + r.message, "err", 7000); add.disabled = false; }
+    };
+    actions.append(el("button", { onclick: closeModal }, "Cancel"), add);
   });
 }
 
@@ -1836,9 +1939,12 @@ PAGES.providers = async function (page) {
   // Search & Filter Bar
   const searchInput = el("input", {
     type: "text",
-    placeholder: "🔍 Filter providers by name, base URL, or API key…",
-    style: "margin-bottom:12px;width:100%;"
+    class: "prov-search",
+    placeholder: "🔍 Filter providers by name, base URL, or API key…"
   });
+  const addBtn = el("button", { class: "primary", type: "button" }, "＋ Add provider");
+  addBtn.onclick = openAddProviderModal;
+  const searchBar = el("div", { class: "prov-toolbar" }, searchInput, addBtn);
 
   const filterContainer = el("div", { class: "prov-filters" });
   const gridContainer = el("div", { class: "prov-grid" });
@@ -2047,32 +2153,8 @@ PAGES.providers = async function (page) {
   renderFilterButtons();
   renderProviders();
 
-  page.append(searchInput, filterContainer, gridContainer);
+  page.append(searchBar, filterContainer, gridContainer);
 
-  /* Add Custom Provider Card */
-  const aName = el("input", { type: "text", placeholder: "e.g. My-Ollama or TokenRouter" });
-  const aUrl = el("input", { type: "text", placeholder: "http://localhost:11434/v1" });
-  const aKey = el("input", { type: "password", placeholder: "leave empty if none needed" });
-  page.append(card("Add a custom provider", "Connect any OpenAI-compatible server, vLLM, LM Studio, or custom proxy",
-    el("div", { class: "row2" },
-      field("Display name", aName),
-      field("Server address (base URL)", aUrl, "Must start with http:// or https://")),
-    field("API key (optional)", aKey, "Skip this for local servers like Ollama."),
-    el("div", { class: "btnrow" },
-      el("button", { class: "primary", onclick: async () => {
-        const name = aName.value.trim(), url = aUrl.value.trim();
-        if (!name) { toast("Give it a display name", "err"); return; }
-        if (!/^https?:\/\//.test(url)) { toast("Server address must start with http:// or https://", "err"); return; }
-        const provs = JSON.parse(JSON.stringify(STATE.config.custom_providers || []));
-        const host = url.replace(/^https?:\/\//, "").split("/")[0];
-        const keyEnv = "HERMES_CUSTOM_" + host.toUpperCase().replace(/[^A-Z0-9]+/g, "_") + "_API_KEY";
-        provs.push({ name, base_url: url, key_env: keyEnv, model: "", models: {}, models_discovered: false });
-        if (aKey.value) await api("/api/env/set", { body: { key: keyEnv, value: aKey.value } });
-        const r = await api("/api/providers", { body: { providers: provs } });
-        if (r.ok) { toast("Custom provider added with [Custom] badge ✓", "ok", 6000); showPage("providers"); }
-        else toast("Could not add: " + r.message, "err");
-      } }, "+ Add Custom Provider")),
-  ));
 };
 
 /* ---------------- BACKUP MODELS (FALLBACK) ---------------- */
@@ -2168,7 +2250,7 @@ PAGES.fallback = async function (page) {
 
       const pk = modelPicker({
         value: r.model || "",
-        placeholder: "model id — type or press Find models",
+        placeholder: "model id — type it, or open the list with 🔍",
         initialModels: modelsFor(r.provider),
         getProvider: () => ({ provider: r.provider, base_url: resolveProvUrl(r.provider) }),
       });

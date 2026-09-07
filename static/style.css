@@ -2808,8 +2808,46 @@ button.primary.danger { background: var(--red); border-color: var(--red); }
 }
 .mp-drop-btn {
   flex: none;
-  padding: 0 16px;
-  font-size: 15px;
+  padding: 0 13px;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.mp-drop-ico { font-size: 14px; line-height: 1; }
+.mp-caret { font-size: 10px; color: var(--muted); transition: transform .15s ease; }
+.mp-drop-btn.is-loading .mp-drop-ico { opacity: .5; }
+.mp-drop-btn:disabled { cursor: progress; }
+
+.mpd-filterbar { display: flex; gap: 6px; align-items: center; }
+.mpd-filterbar input[type=text] { flex: 1 1 auto; min-width: 0; }
+.mpd-chip {
+  flex: none;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.mpd-chip.active {
+  background: var(--gold-soft);
+  border-color: var(--gold-border);
+  color: var(--gold-text);
+}
+
+/* Providers toolbar: search grows, Add sits right-aligned on the same line */
+.prov-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: nowrap;
+  margin-bottom: 12px;
+}
+.prov-search { flex: 1 1 auto; min-width: 0; }
+.prov-toolbar button { flex: 0 0 auto; white-space: nowrap; }
+@media (max-width: 600px) {
+  .prov-toolbar { flex-wrap: wrap; }
+  .prov-toolbar button { width: 100%; }
 }
 .mp-actions-row {
   display: flex;
@@ -2957,10 +2995,14 @@ button.primary.danger { background: var(--red); border-color: var(--red); }
 }
 
 .mpd {
-  position: absolute;
-  top: 100%; left: 0; right: 0;
-  margin-top: 6px;
-  z-index: 70;
+  /* Portalled to <body> and positioned from JS: a modal's scrolling body
+     (overflow-y:auto) clips absolutely positioned children regardless of
+     z-index, which hid this list behind the modal footer. The z-index sits
+     above .modal-veil so it layers over the dialog. */
+  position: fixed;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -2976,7 +3018,8 @@ button.primary.danger { background: var(--red); border-color: var(--red); }
   border: 1px solid var(--line);
 }
 .mpd-list {
-  max-height: 270px;
+  flex: 0 1 auto;
+  min-height: 0;
   overflow-y: auto;
   margin-top: 10px;
   border: 1px solid var(--line-subtle);
