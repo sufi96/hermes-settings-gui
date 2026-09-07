@@ -935,10 +935,10 @@ PAGES.home = async function (page) {
       el("div", { class: "dash-capsule-title" }, "🧩 Installed Skills"),
       el("span", { class: "badge standard", style: "font-weight:700;" }, `${skills.count || 0} ACTIVE`)
     ),
-    el("p", { class: "dim small", style: "margin:0 0 8px;" }, "Autonomous skill playbooks loaded in workspace:"),
+    el("p", { class: "dim small", style: "margin:0 0 8px;" }, `Skill playbooks across ${skills.categories || 0} categories:`),
     skillsWrap,
     el("div", { style: "margin-top:12px;display:flex;justify-content:flex-end;" },
-      el("button", { class: "ghost", style: "font-size:12px;padding:3px 8px;", onclick: () => showPage("tools") }, "Manage Toolsets →")
+      el("button", { class: "ghost", style: "font-size:12px;padding:3px 8px;", onclick: () => showPage("skills") }, "Browse Skills →")
     )
   );
 
@@ -1047,7 +1047,11 @@ PAGES.model = async function (page) {
           provider: currentProvider
         });
         try {
-          const r = await api("/api/probe/chat", { body: { provider: currentProvider, model: currentModel, base_url: m.base_url || "" } });
+          // /api/probe/provider (not /api/probe/chat): it is the only probe that
+          // returns the {chat_ok, chat, key_env} shape read below, and it resolves
+          // the key through the provider's declared key_env / key_candidates
+          // instead of guessing a host slug. Same call the Engine & Model card makes.
+          const r = await api("/api/probe/provider", { body: { provider: currentProvider, model: currentModel, base_url: m.base_url || "", test_chat: true } });
           if (r.ok && r.chat_ok) {
             renderTestResultCard(heroTestCard, {
               state: "ok",
@@ -1606,7 +1610,7 @@ const BUILTIN_PROVIDERS_INFO = [
   { name: "kimi-coding", label: "Moonshot / Kimi", icon: "🌙", base_url: "https://api.moonshot.ai/v1", keys: ["KIMI_API_KEY"], desc: "Moonshot Kimi long-context and code reasoning models." },
   { name: "kimi-coding-cn", label: "Moonshot / Kimi (China)", icon: "🇨🇳", base_url: "https://api.moonshot.cn/v1", keys: ["KIMI_CN_API_KEY"], desc: "Moonshot China regional API endpoint." },
   { name: "alibaba", label: "Alibaba DashScope", icon: "☁️", base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", keys: ["DASHSCOPE_API_KEY"], desc: "Qwen 2.5 and Tongyi Qianwen models via compatible mode." },
-  { name: "stepfun", label: "StepFun", icon: "🪜", base_url: "https://api.stepfun.com/v1", keys: ["STEPFUN_API_KEY"], desc: "Step-1 and Step-2 large multimodal foundation models." },
+  { name: "stepfun", label: "StepFun", icon: "🎚", base_url: "https://api.stepfun.com/v1", keys: ["STEPFUN_API_KEY"], desc: "Step-1 and Step-2 large multimodal foundation models." },
   { name: "upstage", label: "Upstage (Solar)", icon: "☀️", base_url: "https://api.upstage.ai/v1", keys: ["UPSTAGE_API_KEY"], desc: "Solar-10.7B and document intelligence models." },
   { name: "nous", label: "Nous Research", icon: "🔮", base_url: "https://inference-api.nousresearch.com/v1", keys: ["NOUS_API_KEY"], desc: "Nous Research Hermetic reasoning and fine-tuned models." },
   { name: "copilot", label: "GitHub Copilot", icon: "🐙", base_url: "OAuth", keys: [], desc: "GitHub Copilot chat models authenticated via CLI: hermes auth add copilot", oauth: true },
@@ -2262,6 +2266,138 @@ PAGES.tools = async function (page) {
 };
 
 /* ---------------- MEMORY MANAGEMENT ---------------- */
+/* ---------------- SKILLS (INSTALLED PLAYBOOKS) ---------------- */
+
+let skillsCache = null;
+let skillsCategory = "all";
+
+PAGES.skills = async function (page) {
+  page.replaceChildren(
+    el("h1", { class: "pagetitle" }, "Skills"),
+    el("p", { class: "pagesub" }, "Skill playbooks Hermes can load mid-task. Installed under hermes/skills, grouped by category.")
+  );
+
+  const box = el("div");
+  page.append(box);
+
+  if (!skillsCache) {
+    box.append(el("div", { class: "loading" }, "Reading installed skills…"));
+    skillsCache = await api("/api/skills");
+  }
+  const data = skillsCache || {};
+  box.replaceChildren();
+
+  if (!data.ok) {
+    box.append(card("Could not load skills", "", el("p", { class: "red" }, data.message || "unknown error")));
+    return;
+  }
+
+  const all = (data.skills || []).slice();
+  const c = data.counts || {};
+
+  // A skill on disk that the CLI does not list is gated for this machine — the
+  // macOS-only `apple` skills on Windows, for example. Say so rather than
+  // showing a count that quietly disagrees with the folder.
+  const statRow = el("div", { class: "skill-stats" },
+    el("div", { class: "skill-stat" },
+      el("div", { class: "skill-stat-n" }, String(c.total ?? all.length)),
+      el("div", { class: "skill-stat-l" }, "Loadable")),
+    el("div", { class: "skill-stat" },
+      el("div", { class: "skill-stat-n" }, String((data.categories || []).length)),
+      el("div", { class: "skill-stat-l" }, "Categories")),
+    el("div", { class: "skill-stat" },
+      el("div", { class: "skill-stat-n" }, String(c.on_disk ?? "—")),
+      el("div", { class: "skill-stat-l" }, "On disk")),
+    el("div", { class: "skill-stat" },
+      el("div", { class: "skill-stat-n" }, String(c.hub ?? 0)),
+      el("div", { class: "skill-stat-l" }, "Hub-installed"))
+  );
+  box.append(statRow);
+
+  if (c.not_loaded) {
+    box.append(el("p", { class: "dim small", style: "margin:2px 0 14px;" },
+      `${c.not_loaded} skill${c.not_loaded === 1 ? "" : "s"} on disk aren't loadable on this machine (platform-gated or opted out) — they're excluded from the count above.`));
+  }
+  if (data.degraded) {
+    box.append(el("p", { class: "mp-status err", style: "margin:2px 0 14px;" }, data.degraded));
+  }
+
+  const searchInput = el("input", {
+    type: "text",
+    placeholder: "🔍 Search skills by name or description…",
+    style: "flex:1;min-width:220px;"
+  });
+
+  const catSel = el("select", {},
+    el("option", { value: "all" }, "All categories"),
+    ...(data.categories || []).map(x => el("option", { value: x }, x))
+  );
+  catSel.value = skillsCategory;
+  catSel.onchange = () => { skillsCategory = catSel.value; render(); };
+
+  const refreshBtn = el("button", { class: "ghost", title: "Re-read skills from disk" }, "↻ Refresh");
+  refreshBtn.onclick = async () => {
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = "Refreshing…";
+    skillsCache = await api("/api/skills?refresh=1");
+    showPage("skills");
+  };
+
+  const filterRow = el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;" },
+    searchInput, catSel, refreshBtn);
+  box.append(filterRow);
+
+  const listBox = el("div");
+  box.append(listBox);
+
+  function render() {
+    const q = searchInput.value.trim().toLowerCase();
+    const visible = all.filter(s => {
+      if (skillsCategory !== "all" && s.category !== skillsCategory) return false;
+      if (q && !s.name.toLowerCase().includes(q) && !(s.description || "").toLowerCase().includes(q)) return false;
+      return true;
+    });
+
+    listBox.replaceChildren();
+    if (!visible.length) {
+      listBox.append(el("div", { class: "dim", style: "padding:24px 10px;text-align:center;" },
+        all.length ? "No skills match your filter." : "No skills installed."));
+      return;
+    }
+
+    // Group under category headers so 50+ rows stay scannable; a search that
+    // spans categories still reads correctly because each group is labelled.
+    const groups = new Map();
+    for (const s of visible) {
+      if (!groups.has(s.category)) groups.set(s.category, []);
+      groups.get(s.category).push(s);
+    }
+
+    for (const [cat, items] of groups) {
+      listBox.append(el("div", { class: "skill-group" },
+        el("span", { class: "skill-group-name" }, cat || "uncategorised"),
+        el("span", { class: "skill-group-count" }, String(items.length))));
+
+      for (const s of items) {
+        const badges = [];
+        if (s.source && s.source !== "builtin") badges.push(el("span", { class: "badge info" }, s.source));
+        if (s.status && s.status !== "enabled") badges.push(el("span", { class: "badge miss" }, s.status));
+        if (s.version) badges.push(el("span", { class: "badge standard" }, "v" + s.version));
+
+        listBox.append(el("div", { class: "skillrow" },
+          el("span", { class: "skill-emoji" }, "🧩"),
+          el("div", { style: "min-width:0;" },
+            el("div", { class: "skill-name" }, s.name, ...badges),
+            el("div", { class: "skill-desc" }, s.description || "No description in SKILL.md."))
+        ));
+      }
+    }
+  }
+
+  searchInput.oninput = render;
+  render();
+};
+
 PAGES.memory = async function (page) {
   await loadState();
   let memData = { content: "", char_count: 0, char_limit: 10000, memory_enabled: true, user_profile_enabled: true };
@@ -2927,7 +3063,7 @@ PAGES.automations = async function (page) {
 
   creatorCard.append(
     el("div", { class: "auto-creator-header" },
-      el("div", { class: "auto-creator-title" }, "🪄 Prompt to Scheduled Automation"),
+      el("div", { class: "auto-creator-title" }, "✨ Prompt to Scheduled Automation"),
       el("span", { class: "badge standard", style: "font-size:11px;" }, "NATURAL PROMPTING")
     ),
     el("div", { style: "margin-bottom:6px;" },
@@ -3996,7 +4132,16 @@ PAGES.chat = async function (page) {
           title: "Hermes Agent"
         });
         const parsedBody = renderChatMarkdown(m.content);
+        // Models that separate reasoning (native reasoning_content, or a
+        // <think> block Hermes extracted) get it collapsed above the answer
+        // instead of run together with it. Absent reasoning renders nothing.
+        const thinkBlock = (m.reasoning || "").trim()
+          ? el("details", { class: "think-block" },
+              el("summary", {}, "Thinking"),
+              el("div", { class: "think-body" }, m.reasoning.trim()))
+          : null;
         const contentBox = el("div", { class: "bubble-content" },
+          ...(thinkBlock ? [thinkBlock] : []),
           parsedBody,
           metaRow
         );
@@ -4030,7 +4175,7 @@ PAGES.chat = async function (page) {
       const h = await api("/api/chat/history?session=" + encodeURIComponent(sid));
       if (!h.ok) return;
       CHAT.session_id = sid;
-      CHAT.messages = h.messages.map(m => ({ role: m.role, content: m.content, t: m.t }));
+      CHAT.messages = h.messages.map(m => ({ role: m.role, content: m.content, reasoning: m.reasoning || "", t: m.t }));
       for (let i = 1; i < CHAT.messages.length; i++) {
         const m = CHAT.messages[i];
         if (m.role === "assistant" && m.t != null) {
@@ -4397,7 +4542,7 @@ PAGES.chat = async function (page) {
         const h = await api("/api/chat/history?session=" + encodeURIComponent(s.id));
         if (!h.ok) { toast("Could not load: " + h.message, "err"); return; }
         CHAT.session_id = s.id;
-        CHAT.messages = h.messages.map(m => ({ role: m.role, content: m.content, t: m.t }));
+        CHAT.messages = h.messages.map(m => ({ role: m.role, content: m.content, reasoning: m.reasoning || "", t: m.t }));
         for (let i = 1; i < CHAT.messages.length; i++) {
           const m = CHAT.messages[i];
           if (m.role === "assistant" && m.t != null) {

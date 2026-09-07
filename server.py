@@ -21,6 +21,7 @@ import secrets
 import shutil
 import socket
 import sqlite3
+import ssl
 import subprocess
 import sys
 import threading
@@ -33,7 +34,7 @@ from pathlib import Path
 
 import yaml
 
-DECK_VERSION = "1.0.1"
+DECK_VERSION = "1.0.2"
 
 # --------------------------------------------------------------------------
 # Paths
@@ -289,7 +290,7 @@ def resolve_env_ref(value):
 # CLI bridge (the ONLY write path)
 # --------------------------------------------------------------------------
 
-def run_hermes(*args: str, timeout: int = 60) -> dict:
+def run_hermes(*args: str, timeout: int = 60, env_extra: dict | None = None) -> dict:
     """Run a hermes CLI command; return {ok, stdout, stderr}."""
     exe = find_hermes_exe()
     if not exe:
@@ -300,6 +301,9 @@ def run_hermes(*args: str, timeout: int = 60) -> dict:
             "message": "Hermes CLI not found. Please install Hermes Agent."
         }
     try:
+        env = None
+        if env_extra:
+            env = {**os.environ, **{k: str(v) for k, v in env_extra.items()}}
         r = subprocess.run(
             [exe, *args],
             capture_output=True,
@@ -308,6 +312,7 @@ def run_hermes(*args: str, timeout: int = 60) -> dict:
             errors="replace",
             timeout=timeout,
             cwd=str(HERMES_HOME) if HERMES_HOME.exists() else None,
+            env=env,
         )
         out = (r.stdout or "").replace("\r", "").strip()
         err = (r.stderr or "").replace("\r", "").strip()
@@ -620,6 +625,34 @@ def build_state() -> dict:
 # Live provider probes (direct HTTP, read-only)
 # --------------------------------------------------------------------------
 
+def _build_ssl_context() -> ssl.SSLContext:
+    """Trust anchors for every outbound HTTPS call.
+
+    Windows ships a trimmed root store and pulls missing roots on demand through
+    CryptoAPI — a path OpenSSL never triggers. So a provider with a perfectly valid
+    public certificate (api.tokenrouter.com is signed by 'Go Daddy Root Certificate
+    Authority - G2') fails with "self-signed certificate in certificate chain" purely
+    because that root was never downloaded locally. Union the OS store (keeps corporate
+    proxy / custom roots working) with certifi's Mozilla bundle (fills the gaps).
+
+    Set HERMES_GUI_INSECURE_TLS=1 to skip verification entirely — last resort for a
+    TLS-inspecting proxy whose root really is untrusted.
+    """
+    if os.environ.get("HERMES_GUI_INSECURE_TLS", "").strip().lower() in ("1", "true", "yes"):
+        return ssl._create_unverified_context()
+    ctx = ssl.create_default_context()
+    for mod in ("certifi", "pip._vendor.certifi"):
+        try:
+            ctx.load_verify_locations(cafile=__import__(mod, fromlist=["where"]).where())
+            break
+        except Exception:
+            continue
+    return ctx
+
+
+SSL_CTX = _build_ssl_context()
+
+
 def http_json(url: str, key: str | None, payload: dict | None = None, timeout: int = 20,
              headers: dict | None = None, x_api_key: bool = False):
     req = urllib.request.Request(url, method="POST" if payload else "GET")
@@ -633,7 +666,7 @@ def http_json(url: str, key: str | None, payload: dict | None = None, timeout: i
         req.add_header(hk, hv)
     data = json.dumps(payload).encode() if payload else None
     try:
-        with urllib.request.urlopen(req, data=data, timeout=timeout) as r:
+        with urllib.request.urlopen(req, data=data, timeout=timeout, context=SSL_CTX) as r:
             return json.loads(r.read().decode() or "{}")
     except urllib.error.HTTPError as e:
         body = ""
@@ -751,7 +784,7 @@ def probe_speed(base_url: str, api_key: str | None, model: str,
         reported_usage = {}
         rate_limits = {}
 
-        with urllib.request.urlopen(req, data=data_bytes, timeout=45) as resp:
+        with urllib.request.urlopen(req, data=data_bytes, timeout=45, context=SSL_CTX) as resp:
             for hk, hv in resp.headers.items():
                 lhk = hk.lower()
                 if "ratelimit" in lhk or lhk in ("retry-after", "openai-processing-ms", "x-request-id", "cf-ray"):
@@ -827,7 +860,7 @@ def probe_speed(base_url: str, api_key: str | None, model: str,
 
         data_bytes = json.dumps(payload).encode("utf-8")
         t_start = time.perf_counter()
-        with urllib.request.urlopen(req, data=data_bytes, timeout=45) as resp:
+        with urllib.request.urlopen(req, data=data_bytes, timeout=45, context=SSL_CTX) as resp:
             rate_limits = {}
             for hk, hv in resp.headers.items():
                 lhk = hk.lower()
@@ -1053,6 +1086,133 @@ def resolve_provider_target(provider: str, base_url: str = ""):
                 f"'{provider}' logs in with OAuth (hermes auth add {provider}), not an API key — "
                 "this panel can't test it directly."}
     return None
+
+
+# --------------------------------------------------------------------------
+# Installed skills (hermes skills list + SKILL.md frontmatter)
+# --------------------------------------------------------------------------
+
+SKILLS_DIR = HERMES_HOME / "skills"
+
+# `hermes skills list` renders a box table whose Name column is truncated to the
+# terminal width ("test-driven-developme…"), so the child is given a wide COLUMNS.
+_SKILL_ROW = re.compile(r"^\s*│([^│]+)│([^│]+)│([^│]+)│([^│]+)│([^│]+)│\s*$")
+_SKILL_SUMMARY = re.compile(
+    r"(\d+)\s+hub-installed,\s*(\d+)\s+builtin,\s*(\d+)\s+local\s*—\s*(\d+)\s+enabled,\s*(\d+)\s+disabled"
+)
+
+_SKILLS_CACHE: dict = {"t": 0.0, "data": None}
+_SKILLS_TTL = 90.0
+
+
+def _skill_frontmatter() -> dict:
+    """(category, name) -> {description, version} parsed from each SKILL.md head.
+
+    Cheap YAML-ish scan of the frontmatter block only; the CLI does not expose
+    descriptions, and reading whole files would be wasteful for ~60 skills.
+    """
+    out: dict = {}
+    if not SKILLS_DIR.exists():
+        return out
+    for md in SKILLS_DIR.glob("*/*/SKILL.md"):
+        meta = {"description": "", "version": ""}
+        try:
+            with md.open(encoding="utf-8", errors="replace") as fh:
+                if (fh.readline().strip() != "---"):
+                    continue
+                for _ in range(40):
+                    line = fh.readline()
+                    if not line or line.strip() == "---":
+                        break
+                    m = re.match(r"^(description|version)\s*:\s*(.+?)\s*$", line)
+                    if m:
+                        meta[m.group(1)] = m.group(2).strip().strip("\"'")
+        except Exception:
+            pass
+        out[(md.parent.parent.name, md.parent.name)] = meta
+    return out
+
+
+def _skills_from_disk() -> list[dict]:
+    """Fallback inventory when the CLI is unavailable — on-disk skills only.
+
+    Status is reported as "unknown" because whether a skill actually loads is a
+    runtime decision (platform gating etc.) that only the CLI can answer.
+    """
+    fm = _skill_frontmatter()
+    rows = []
+    for (cat, name), meta in sorted(fm.items()):
+        rows.append({
+            "name": name, "category": cat, "source": "builtin",
+            "trust": "", "status": "unknown",
+            "description": meta.get("description", ""), "version": meta.get("version", ""),
+        })
+    return rows
+
+
+def load_skills(force: bool = False) -> dict:
+    """Installed skills with their real load status.
+
+    `hermes skills list` is the authority for what actually loads on THIS
+    machine — 58 skills exist on disk here but 7 are platform-gated (the macOS
+    `apple` ones on Windows), so a directory count alone overstates it. The
+    frontmatter pass adds the descriptions the CLI never prints.
+    """
+    now = time.time()
+    if not force and _SKILLS_CACHE["data"] is not None and (now - _SKILLS_CACHE["t"]) < _SKILLS_TTL:
+        return _SKILLS_CACHE["data"]
+
+    on_disk = 0
+    try:
+        on_disk = sum(1 for _ in SKILLS_DIR.glob("*/*/SKILL.md")) if SKILLS_DIR.exists() else 0
+    except Exception:
+        pass
+
+    fm = _skill_frontmatter()
+    res = run_hermes("skills", "list", timeout=90, env_extra={"COLUMNS": "200"})
+    rows: list[dict] = []
+    counts = {"hub": 0, "builtin": 0, "local": 0, "enabled": 0, "disabled": 0}
+    summary_seen = False
+
+    for line in (res.get("stdout") or "").splitlines():
+        m = _SKILL_SUMMARY.search(line)
+        if m:
+            counts.update(zip(("hub", "builtin", "local", "enabled", "disabled"),
+                              (int(x) for x in m.groups())))
+            summary_seen = True
+            continue
+        cells = _SKILL_ROW.match(line)
+        if not cells:
+            continue
+        name, cat, source, trust, status = (c.strip() for c in cells.groups())
+        if not name or name.lower() == "name":
+            continue
+        meta = fm.get((cat, name), {})
+        rows.append({
+            "name": name, "category": cat, "source": source,
+            "trust": trust, "status": status,
+            "description": meta.get("description", ""), "version": meta.get("version", ""),
+        })
+
+    degraded = ""
+    if not rows:
+        rows = _skills_from_disk()
+        counts["builtin"] = len(rows)
+        degraded = res.get("message") or "Could not read `hermes skills list`; showing what is on disk."
+    elif not summary_seen:
+        counts["enabled"] = sum(1 for r in rows if r["status"] == "enabled")
+        counts["disabled"] = sum(1 for r in rows if r["status"] == "disabled")
+
+    data = {
+        "ok": True,
+        "skills": rows,
+        "counts": {**counts, "total": len(rows), "on_disk": on_disk,
+                   "not_loaded": max(0, on_disk - len(rows))},
+        "categories": sorted({r["category"] for r in rows if r["category"]}),
+        "degraded": degraded,
+    }
+    _SKILLS_CACHE.update(t=now, data=data)
+    return data
 
 
 # --------------------------------------------------------------------------
@@ -1325,13 +1485,22 @@ def chat_history(session_id: str | None, limit: int = 400) -> dict:
             return {"ok": False, "message": "invalid session id"}
         if session_id:
             rows = con.execute(
-                "SELECT role, content, timestamp FROM messages "
+                "SELECT role, content, timestamp, "
+                "COALESCE(NULLIF(TRIM(reasoning_content), ''), "
+                "NULLIF(TRIM(reasoning), ''), '') AS think FROM messages "
                 "WHERE session_id=? AND active=1 AND role IN ('user','assistant') "
                 "AND (tool_calls IS NULL OR tool_calls='') "
                 "AND content IS NOT NULL AND TRIM(content)<>'' "
                 "ORDER BY id LIMIT ?",
                 (session_id, limit)).fetchall()
-            msgs = [{"role": r["role"], "content": r["content"], "t": r["timestamp"]} for r in rows]
+            # Reasoning is surfaced separately so the UI can collapse the model's
+            # thinking behind a header instead of running it into the answer.
+            # Hermes writes structured reasoning to `reasoning_content` but the
+            # inline-<think> extraction path fills `reasoning`, so read both.
+            # Providers that don't separate reasoning leave both NULL.
+            msgs = [{"role": r["role"], "content": r["content"],
+                     "reasoning": r["think"] or "", "t": r["timestamp"]}
+                    for r in rows]
             return {"ok": True, "session_id": session_id, "messages": msgs}
         # recent sessions list
         rows = con.execute(
@@ -1517,15 +1686,19 @@ def dashboard_overview() -> dict:
         except Exception:
             pass
 
-    # 3. Skills directory
-    skills_dir = HERMES_HOME / "skills"
-    if skills_dir.exists():
-        try:
-            skills = [p.name for p in skills_dir.iterdir() if (p.is_dir() or p.suffix in (".py", ".md")) and not p.name.startswith(".")]
-            out["skills"]["count"] = len(skills)
-            out["skills"]["list"] = skills[:8]
-        except Exception:
-            pass
+    # 3. Skills — skills live at skills/<category>/<skill>/SKILL.md, so iterating
+    #    the top level counted the 12 CATEGORY folders and listed those as if
+    #    they were skills. load_skills() is the shared (cached) source the Skills
+    #    page uses, so the dashboard number and that page can never disagree.
+    try:
+        sk = load_skills()
+        out["skills"]["count"] = sk["counts"]["total"]
+        out["skills"]["list"] = [r["name"] for r in sk["skills"][:8]]
+        out["skills"]["on_disk"] = sk["counts"]["on_disk"]
+        out["skills"]["not_loaded"] = sk["counts"]["not_loaded"]
+        out["skills"]["categories"] = len(sk["categories"])
+    except Exception:
+        pass
 
     # 4. Gateways & Integrations
     try:
@@ -1661,7 +1834,7 @@ def check_updates(force: bool = False) -> dict:
             f"https://api.github.com/repos/{GITHUB_REPO}/commits/main",
             headers={"User-Agent": "Hermes-Settings-GUI", "Accept": "application/vnd.github.v3+json"}
         )
-        with urllib.request.urlopen(req, timeout=8) as res:
+        with urllib.request.urlopen(req, timeout=8, context=SSL_CTX) as res:
             cdata = json.loads(res.read().decode("utf-8"))
             latest_commit = cdata.get("sha", "")
             commit_msg = cdata.get("commit", {}).get("message", "").split("\n")[0]
@@ -1675,7 +1848,7 @@ def check_updates(force: bool = False) -> dict:
             f"https://api.github.com/repos/{GITHUB_REPO}/tags",
             headers={"User-Agent": "Hermes-Settings-GUI", "Accept": "application/vnd.github.v3+json"}
         )
-        with urllib.request.urlopen(treq, timeout=8) as res:
+        with urllib.request.urlopen(treq, timeout=8, context=SSL_CTX) as res:
             tdata = json.loads(res.read().decode("utf-8"))
             if tdata and isinstance(tdata, list):
                 latest_tag = tdata[0].get("name", "")
@@ -1832,6 +2005,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/state":
             self._json(build_state())
+        elif path == "/api/skills":
+            from urllib.parse import urlparse as _up, parse_qs as _pq
+            _q = _pq(_up(self.path).query)
+            self._json(load_skills(force=(_q.get("refresh") or [""])[0] == "1"))
         elif path == "/api/system/health":
             self._json(check_system_requirements())
         elif path == "/api/raw":

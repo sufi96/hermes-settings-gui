@@ -1680,6 +1680,115 @@ pre.codeblock {
   padding-top: 4px;
 }
 
+/* --- Skills page --- */
+.skill-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin: 4px 0 14px;
+}
+.skill-stat {
+  background: var(--card-muted);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.skill-stat-n { font-size: 20px; font-weight: 700; color: var(--ink); line-height: 1.2; }
+.skill-stat-l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; }
+
+.skill-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 6px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--line-subtle);
+}
+.skill-group-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--gold-text);
+}
+.skill-group-count {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg-subtle);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.skillrow {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  padding: 9px 4px;
+  border-bottom: 1px solid var(--line-subtle);
+}
+.skillrow:last-child { border-bottom: none; }
+.skill-emoji { font-size: 15px; flex: none; margin-top: 1px; }
+.skill-name {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.skill-desc {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-top: 2px;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* --- Collapsed reasoning ("Thinking") above an assistant reply --- */
+.think-block {
+  margin: 0 0 10px;
+  border: 1px solid var(--line-subtle);
+  border-radius: 10px;
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+.think-block > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.think-block > summary::-webkit-details-marker { display: none; }
+.think-block > summary:hover { color: var(--ink-secondary); }
+.think-block > summary::before {
+  content: "B8";
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+.think-block[open] > summary::before { transform: rotate(90deg); }
+.think-block .think-body {
+  padding: 2px 12px 10px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow-y: auto;
+  border-top: 1px solid var(--line-subtle);
+  margin-top: 2px;
+  padding-top: 8px;
+}
+
 /* --- Rendered Markdown inside Chat --- */
 .bubble-text {
   min-width: 0;

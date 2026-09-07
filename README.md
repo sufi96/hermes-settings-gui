@@ -1,6 +1,6 @@
 # Hermes Settings GUI — Control Deck
 
-[![Release](https://img.shields.io/badge/version-1.0.1-gold.svg)](https://github.com/sufi96/hermes-settings-gui)
+[![Release](https://img.shields.io/badge/version-1.0.2-gold.svg)](https://github.com/sufi96/hermes-settings-gui)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Security](https://img.shields.io/badge/security-localhost--only-brightgreen.svg)]()
@@ -22,7 +22,29 @@ A modern, local web interface, command center, and interactive dashboard for [No
 
 ---
 
-## ✨ What's New in v1.0.1
+## ✨ What's New in v1.0.2
+
+### 🎒 Skills Library
+- **Dedicated Skills Page:** New sidebar tab under *Agent Brain & Tools* listing every installed skill playbook, grouped by category with live search across names and descriptions.
+- **Real Load Status:** Backed by `hermes skills list`, so the page reports what actually loads on **this** machine — platform-gated skills (the macOS-only `apple` set on Windows, for example) are counted separately as *On disk* rather than silently inflating the total.
+- **Rich Metadata:** Descriptions and versions are read from each `SKILL.md` frontmatter, which the CLI never prints. Category filter, source/status badges, and a refresh control that busts the server-side cache.
+- **Fixed Dashboard Count:** The home *Installed Skills* card previously counted the `skills/<category>/` folders and listed those as if they were skills (showing "12 ACTIVE" for 51 real skills). It now shares one cached source with the Skills page, so the two can never disagree — and its shortcut finally lands on Skills instead of the unrelated Tools page.
+
+### 🧠 Separated Model Reasoning
+- **Collapsible Thinking Block:** Assistant replies that carry reasoning now render it in a collapsed `▸ Thinking` panel above the answer instead of running the model's internal monologue straight into the response text.
+- **Broader Reasoning Capture:** Chat history reads both the structured `reasoning_content` field and the inline-`<think>` extraction path, so reasoning surfaces whether the provider separates it natively or the agent had to parse it out.
+
+### 🔐 TLS Trust for Model Discovery
+- **Fixed `CERTIFICATE_VERIFY_FAILED`:** Windows ships a trimmed root store and fetches missing roots on demand through CryptoAPI — a path OpenSSL never triggers. Providers with perfectly valid public certificates (TokenRouter's GoDaddy chain, for one) failed model discovery with a misleading *"self-signed certificate in certificate chain"*.
+- **Unified Trust Store:** All outbound HTTPS now runs through one SSL context that unions the OS store (preserving corporate proxy and custom roots) with certifi's Mozilla bundle. Verification stays fully enabled; `HERMES_GUI_INSECURE_TLS=1` is available as a last-resort escape hatch for genuine TLS-inspecting proxies.
+
+### 🩺 Fixes
+- **Main AI "Test Connection":** Always reported failure even against a healthy endpoint. It called `/api/probe/chat`, which returns a different response shape than the handler read, and which ignores the provider name entirely — so registry providers failed before a request was ever made. It now uses the same `/api/probe/provider` path the Engine & Model card already used, gaining proper key resolution through each provider's declared key environment variable.
+- **Missing Sidebar Icons on Windows 10:** *Backup Models* rendered as an empty square. Its glyph (`🛟`, Emoji 14.0) is absent from the Segoe UI Emoji font shipped with Windows 10. Replaced, along with two others carrying the same defect (StepFun's provider icon and the Automations creator heading).
+
+---
+
+## 🗄️ Previously in v1.0.1
 
 ### ⚡ Autonomous Automations & Scheduling Studio
 - **Prompt-Driven Scheduling:** Standard natural language prompting turns directly into scheduled autonomous tasks. Write prompts in plain English—Hermes wakes up, runs the instruction, and pushes results automatically.
