@@ -614,7 +614,7 @@ async function showPage(name) {
   page.classList.toggle("providers-page", name === "providers");
   page.classList.toggle("memory-page", name === "memory");
   page.classList.toggle("automations-page", name === "automations");
-  page.classList.toggle("wide-page", name === "home" || name === "providers" || name === "chat" || name === "tools" || name === "memory" || name === "automations");
+  page.classList.toggle("wide-page", name === "home" || name === "providers" || name === "chat" || name === "tools" || name === "memory" || name === "automations" || name === "skills");
   page.replaceChildren(el("div", { class: "loading" }, "Loading…"));
   if (PAGES[name]) {
     try {
@@ -632,6 +632,43 @@ async function showPage(name) {
       );
     }
   }
+}
+
+
+/* ---------------- browser heartbeat ----------------
+   The server is a local single-user tool, so it shuts itself down once no page
+   is attached (see start_heartbeat_watchdog in server.py). This keeps it told
+   that a tab is still open. */
+function initHeartbeat() {
+  let stopped = false;
+  const beat = () => {
+    if (stopped) return;
+    // Plain fetch, failures ignored: during the post-update restart the server
+    // is briefly absent and a missed beat is not meaningful on its own.
+    fetch("/api/heartbeat", { headers: { "X-Config-Token": TOKEN }, cache: "no-store" })
+      .catch(() => {});
+  };
+  beat();
+  setInterval(beat, 10000);
+
+  // Hidden tabs get their timers throttled to roughly once a minute, so beat
+  // immediately on becoming visible again rather than waiting out the interval.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") beat();
+  });
+
+  // pagehide covers closing the tab, closing the window and navigating away.
+  // sendBeacon still delivers while the page is being torn down, where a normal
+  // fetch would be cancelled. It cannot set headers, so the token goes in the
+  // query string. A reload fires this too, which is why the server treats it as
+  // a short cancellable delay rather than an immediate exit.
+  window.addEventListener("pagehide", (e) => {
+    if (e.persisted) return;              // bfcache: the page may come straight back
+    stopped = true;
+    try {
+      navigator.sendBeacon("/api/closing?token=" + encodeURIComponent(TOKEN), new Blob([], { type: "text/plain" }));
+    } catch (_) { /* nothing more we can do while unloading */ }
+  });
 }
 
 /* ---------------- dashboard helpers ---------------- */
@@ -2270,11 +2307,121 @@ PAGES.tools = async function (page) {
 
 let skillsCache = null;
 let skillsCategory = "all";
+let skillsStatus = "all";
+
+async function reloadSkills(page) {
+  skillsCache = await api("/api/skills?refresh=1");
+  showPage("skills");
+}
+
+function openSkillEditor(sk) {
+  openModal("Edit " + sk.name, async (body, actions) => {
+    body.append(el("div", { class: "loading" }, "Loading SKILL.md…"));
+    const r = await api("/api/skills/source?category=" + encodeURIComponent(sk.category) +
+                        "&name=" + encodeURIComponent(sk.name));
+    body.replaceChildren();
+    if (!r.ok) {
+      body.append(el("p", { class: "red" }, r.message || "Could not read this skill."));
+      return;
+    }
+    body.append(el("p", { class: "dim small", style: "margin:0 0 8px;font-family:var(--font-mono);" }, r.path || ""));
+    const ta = el("textarea", { class: "skill-editor", spellcheck: "false" });
+    ta.value = r.content;
+    body.append(ta);
+    const note = el("span", { class: "dim small", style: "margin-right:auto;" },
+      "Frontmatter drives the name and description shown here.");
+    const save = el("button", { class: "primary" }, "Save");
+    save.onclick = async () => {
+      save.disabled = true;
+      save.textContent = "Saving…";
+      const res = await api("/api/skills/save", {
+        body: { category: sk.category, name: sk.name, content: ta.value }
+      });
+      if (res.ok) {
+        toast("Saved " + sk.name + " ✓", "ok");
+        closeModal();
+        reloadSkills();
+      } else {
+        toast(res.message || "Save failed", "err", 7000);
+        save.disabled = false;
+        save.textContent = "Save";
+      }
+    };
+    actions.append(note, el("button", { onclick: closeModal }, "Cancel"), save);
+  }, "modal-lg");
+}
+
+function openSkillCreator(categories) {
+  openModal("New skill", (body, actions) => {
+    const cat = el("input", { type: "text", placeholder: "category (e.g. productivity)", list: "skill-cat-list" });
+    const dl = el("datalist", { id: "skill-cat-list" }, ...categories.map(c => el("option", { value: c })));
+    const name = el("input", { type: "text", placeholder: "skill-name" });
+    const desc = el("input", { type: "text", placeholder: "One line describing when to use it" });
+    body.append(
+      el("p", { class: "dim small", style: "margin:0 0 10px;" },
+        "Creates skills/<category>/<name>/SKILL.md with a starter template you can edit right after."),
+      field("Category", cat), dl,
+      field("Skill name", name, "Letters, digits, dot, dash or underscore."),
+      field("Description", desc)
+    );
+    const create = el("button", { class: "primary" }, "Create");
+    create.onclick = async () => {
+      create.disabled = true;
+      const r = await api("/api/skills/create", {
+        body: { category: cat.value.trim(), name: name.value.trim(), description: desc.value.trim() }
+      });
+      if (r.ok) {
+        toast(r.message, "ok");
+        closeModal();
+        skillsCache = await api("/api/skills?refresh=1");
+        showPage("skills");
+        openSkillEditor({ category: r.category, name: r.name });
+      } else {
+        toast(r.message || "Could not create skill", "err", 7000);
+        create.disabled = false;
+      }
+    };
+    actions.append(el("button", { onclick: closeModal }, "Cancel"), create);
+  });
+}
+
+function openSkillInstaller(categories) {
+  openModal("Install a skill", (body, actions) => {
+    const ident = el("input", { type: "text", placeholder: "owner/repo/skill-name  or  https://…/SKILL.md" });
+    const cat = el("input", { type: "text", placeholder: "optional — category folder" });
+    const nm = el("input", { type: "text", placeholder: "optional — override the name" });
+    const out = el("pre", { class: "codeblock", hidden: true, style: "max-height:220px;overflow:auto;" });
+    body.append(
+      el("p", { class: "dim small", style: "margin:0 0 10px;" },
+        "Runs hermes skills install. Accepts a registry identifier or a direct link to a SKILL.md."),
+      field("Identifier or URL", ident),
+      field("Category", cat), field("Name", nm), out
+    );
+    const go = el("button", { class: "primary" }, "Install");
+    go.onclick = async () => {
+      go.disabled = true;
+      go.textContent = "Installing…";
+      out.hidden = false;
+      out.textContent = "Working — this can take a moment…";
+      const r = await api("/api/skills/install", {
+        body: { identifier: ident.value.trim(), category: cat.value.trim(), name: nm.value.trim() }
+      });
+      out.textContent = r.output || r.message || (r.ok ? "Done." : "Failed.");
+      go.disabled = false;
+      go.textContent = "Install";
+      if (r.ok) {
+        toast("Skill installed ✓", "ok");
+        skillsCache = await api("/api/skills?refresh=1");
+      }
+    };
+    actions.append(el("button", { onclick: closeModal }, "Close"), go);
+  }, "modal-lg");
+}
 
 PAGES.skills = async function (page) {
   page.replaceChildren(
     el("h1", { class: "pagetitle" }, "Skills"),
-    el("p", { class: "pagesub" }, "Skill playbooks Hermes can load mid-task. Installed under hermes/skills, grouped by category.")
+    el("p", { class: "pagesub" }, "Skill playbooks Hermes can load mid-task. Create your own, edit any of them, or switch off the ones you don't want loaded.")
   );
 
   const box = el("div");
@@ -2294,58 +2441,51 @@ PAGES.skills = async function (page) {
 
   const all = (data.skills || []).slice();
   const c = data.counts || {};
+  const offCount = all.filter(s => !s.enabled).length;
 
   // A skill on disk that the CLI does not list is gated for this machine — the
-  // macOS-only `apple` skills on Windows, for example. Say so rather than
-  // showing a count that quietly disagrees with the folder.
-  const statRow = el("div", { class: "skill-stats" },
-    el("div", { class: "skill-stat" },
-      el("div", { class: "skill-stat-n" }, String(c.total ?? all.length)),
-      el("div", { class: "skill-stat-l" }, "Loadable")),
-    el("div", { class: "skill-stat" },
-      el("div", { class: "skill-stat-n" }, String((data.categories || []).length)),
-      el("div", { class: "skill-stat-l" }, "Categories")),
-    el("div", { class: "skill-stat" },
-      el("div", { class: "skill-stat-n" }, String(c.on_disk ?? "—")),
-      el("div", { class: "skill-stat-l" }, "On disk")),
-    el("div", { class: "skill-stat" },
-      el("div", { class: "skill-stat-n" }, String(c.hub ?? 0)),
-      el("div", { class: "skill-stat-l" }, "Hub-installed"))
-  );
-  box.append(statRow);
+  // macOS-only `apple` set on Windows, for example. Shown separately so the
+  // headline number never silently disagrees with the folder.
+  const stat = (n, l, hint) => el("div", { class: "skill-stat", title: hint || "" },
+    el("div", { class: "skill-stat-n" }, String(n)),
+    el("div", { class: "skill-stat-l" }, l));
+  box.append(el("div", { class: "skill-stats" },
+    stat(c.total ?? all.length, "Loadable", "Skills Hermes can load on this machine"),
+    stat(all.length - offCount, "Enabled", "Not switched off in config"),
+    stat((data.categories || []).length, "Categories"),
+    stat(c.on_disk ?? "—", "On disk", "SKILL.md files present under hermes/skills"),
+    stat(c.hub ?? 0, "Hub-installed", "Installed from a registry rather than bundled")
+  ));
 
   if (c.not_loaded) {
     box.append(el("p", { class: "dim small", style: "margin:2px 0 14px;" },
-      `${c.not_loaded} skill${c.not_loaded === 1 ? "" : "s"} on disk aren't loadable on this machine (platform-gated or opted out) — they're excluded from the count above.`));
+      `${c.not_loaded} skill${c.not_loaded === 1 ? "" : "s"} on disk aren't loadable here (platform-gated or opted out) — excluded from “Loadable”.`));
   }
-  if (data.degraded) {
-    box.append(el("p", { class: "mp-status err", style: "margin:2px 0 14px;" }, data.degraded));
-  }
+  if (data.degraded) box.append(el("p", { class: "mp-status err", style: "margin:2px 0 14px;" }, data.degraded));
 
-  const searchInput = el("input", {
-    type: "text",
-    placeholder: "🔍 Search skills by name or description…",
-    style: "flex:1;min-width:220px;"
-  });
-
-  const catSel = el("select", {},
-    el("option", { value: "all" }, "All categories"),
-    ...(data.categories || []).map(x => el("option", { value: x }, x))
-  );
+  /* ---- toolbar ---- */
+  const searchInput = el("input", { type: "text", placeholder: "🔍 Search name or description…", style: "flex:1;min-width:200px;" });
+  const catSel = el("select", {}, el("option", { value: "all" }, "All categories"),
+    ...(data.categories || []).map(x => el("option", { value: x }, x)));
   catSel.value = skillsCategory;
   catSel.onchange = () => { skillsCategory = catSel.value; render(); };
 
-  const refreshBtn = el("button", { class: "ghost", title: "Re-read skills from disk" }, "↻ Refresh");
-  refreshBtn.onclick = async () => {
-    refreshBtn.disabled = true;
-    refreshBtn.textContent = "Refreshing…";
-    skillsCache = await api("/api/skills?refresh=1");
-    showPage("skills");
-  };
+  const statusSel = el("select", {},
+    el("option", { value: "all" }, "Any status"),
+    el("option", { value: "on" }, "Enabled only"),
+    el("option", { value: "off" }, "Disabled only"));
+  statusSel.value = skillsStatus;
+  statusSel.onchange = () => { skillsStatus = statusSel.value; render(); };
 
-  const filterRow = el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;" },
-    searchInput, catSel, refreshBtn);
-  box.append(filterRow);
+  const newBtn = el("button", { class: "primary" }, "＋ New skill");
+  newBtn.onclick = () => openSkillCreator(data.categories || []);
+  const installBtn = el("button", {}, "⤓ Install");
+  installBtn.onclick = () => openSkillInstaller(data.categories || []);
+  const refreshBtn = el("button", { class: "ghost", title: "Re-read skills from disk" }, "↻");
+  refreshBtn.onclick = async () => { refreshBtn.disabled = true; await reloadSkills(); };
+
+  box.append(el("div", { class: "skill-toolbar" },
+    searchInput, catSel, statusSel, newBtn, installBtn, refreshBtn));
 
   const listBox = el("div");
   box.append(listBox);
@@ -2354,19 +2494,21 @@ PAGES.skills = async function (page) {
     const q = searchInput.value.trim().toLowerCase();
     const visible = all.filter(s => {
       if (skillsCategory !== "all" && s.category !== skillsCategory) return false;
+      if (skillsStatus === "on" && !s.enabled) return false;
+      if (skillsStatus === "off" && s.enabled) return false;
       if (q && !s.name.toLowerCase().includes(q) && !(s.description || "").toLowerCase().includes(q)) return false;
       return true;
     });
 
     listBox.replaceChildren();
     if (!visible.length) {
-      listBox.append(el("div", { class: "dim", style: "padding:24px 10px;text-align:center;" },
-        all.length ? "No skills match your filter." : "No skills installed."));
+      listBox.append(el("div", { class: "dim", style: "padding:28px 10px;text-align:center;" },
+        all.length ? "No skills match your filter." : "No skills installed yet — use ＋ New skill to write one."));
       return;
     }
 
-    // Group under category headers so 50+ rows stay scannable; a search that
-    // spans categories still reads correctly because each group is labelled.
+    // Grouped under category headers so 50+ entries stay scannable; a search
+    // spanning categories still reads correctly because each group is labelled.
     const groups = new Map();
     for (const s of visible) {
       if (!groups.has(s.category)) groups.set(s.category, []);
@@ -2378,19 +2520,64 @@ PAGES.skills = async function (page) {
         el("span", { class: "skill-group-name" }, cat || "uncategorised"),
         el("span", { class: "skill-group-count" }, String(items.length))));
 
+      const grid = el("div", { class: "skill-grid" });
       for (const s of items) {
         const badges = [];
         if (s.source && s.source !== "builtin") badges.push(el("span", { class: "badge info" }, s.source));
-        if (s.status && s.status !== "enabled") badges.push(el("span", { class: "badge miss" }, s.status));
         if (s.version) badges.push(el("span", { class: "badge standard" }, "v" + s.version));
+        if (s.essential) badges.push(el("span", { class: "badge ok" }, "essential"));
 
-        listBox.append(el("div", { class: "skillrow" },
-          el("span", { class: "skill-emoji" }, "🧩"),
-          el("div", { style: "min-width:0;" },
+        const tgl = el("label", { class: "tgl", title: s.essential ? "Essential skills are always loaded" : "Load this skill" });
+        const inp = el("input", { type: "checkbox", checked: s.enabled, disabled: !!s.essential });
+        inp.onchange = async () => {
+          const want = inp.checked;
+          const r = await api("/api/skills/toggle", { body: { name: s.name, enabled: want } });
+          if (r.ok) {
+            s.enabled = want;
+            cardEl.classList.toggle("is-off", !want);
+            toast(s.name + (want ? " enabled ✓" : " disabled"), "ok", 2500);
+          } else {
+            inp.checked = !want;
+            toast(r.message || "Could not change that", "err", 7000);
+          }
+        };
+        tgl.append(inp, el("span", { class: "knob" }));
+
+        const editBtn = el("button", { class: "ghost skill-act", title: "Edit SKILL.md" }, "Edit");
+        editBtn.onclick = () => openSkillEditor(s);
+
+        const delBtn = el("button", { class: "ghost skill-act danger", title: "Delete this skill" }, "Delete");
+        delBtn.onclick = () => {
+          openModal("Delete " + s.name + "?", (body, actions) => {
+            body.append(
+              el("p", {}, `This removes skills/${s.category}/${s.name} from disk.`),
+              s.source === "builtin"
+                ? el("p", { class: "dim small" },
+                    "This is a bundled skill, so a future hermes update may restore it. Disabling it instead keeps it gone for good.")
+                : null
+            );
+            const go = el("button", { class: "primary danger" }, "Delete");
+            go.onclick = async () => {
+              go.disabled = true;
+              const r = await api("/api/skills/delete", { body: { category: s.category, name: s.name } });
+              if (r.ok) { toast(r.message, "ok"); closeModal(); reloadSkills(); }
+              else { toast(r.message || "Delete failed", "err", 7000); go.disabled = false; }
+            };
+            actions.append(el("button", { onclick: closeModal }, "Cancel"), go);
+          });
+        };
+
+        const cardEl = el("div", { class: "skillcard" + (s.enabled ? "" : " is-off") },
+          el("div", { class: "skillcard-head" },
+            el("span", { class: "skill-emoji" }, "🧩"),
             el("div", { class: "skill-name" }, s.name, ...badges),
-            el("div", { class: "skill-desc" }, s.description || "No description in SKILL.md."))
-        ));
+            tgl),
+          el("div", { class: "skill-desc" }, s.description || "No description in SKILL.md."),
+          el("div", { class: "skillcard-actions" }, editBtn, delBtn)
+        );
+        grid.append(cardEl);
       }
+      listBox.append(grid);
     }
   }
 
@@ -5008,4 +5195,5 @@ async function initUpdateChecker() {
   await loadState();
   showPage("home");
   initUpdateChecker();
+  initHeartbeat();
 })();

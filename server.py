@@ -1194,6 +1194,7 @@ def load_skills(force: bool = False) -> dict:
             "name": name, "category": cat, "source": source,
             "trust": trust, "status": status,
             "description": meta.get("description", ""), "version": meta.get("version", ""),
+            "essential": name in ESSENTIAL_SKILLS,
         })
 
     degraded = ""
@@ -1205,9 +1206,24 @@ def load_skills(force: bool = False) -> dict:
         counts["enabled"] = sum(1 for r in rows if r["status"] == "enabled")
         counts["disabled"] = sum(1 for r in rows if r["status"] == "disabled")
 
+    try:
+        _sk_cfg = load_config().get("skills") or {}
+        _dis = _sk_cfg.get("disabled") if isinstance(_sk_cfg, dict) else []
+        if isinstance(_dis, str):
+            try:
+                _dis = json.loads(_dis)
+            except Exception:
+                _dis = [_dis] if _dis.strip() else []
+        disabled_names = sorted(str(x) for x in (_dis or []) if str(x).strip())
+    except Exception:
+        disabled_names = []
+    for r in rows:
+        r["enabled"] = r["name"] not in disabled_names
+
     data = {
         "ok": True,
         "skills": rows,
+        "disabled": disabled_names,
         "counts": {**counts, "total": len(rows), "on_disk": on_disk,
                    "not_loaded": max(0, on_disk - len(rows))},
         "categories": sorted({r["category"] for r in rows if r["category"]}),
@@ -1215,6 +1231,193 @@ def load_skills(force: bool = False) -> dict:
     }
     _SKILLS_CACHE.update(t=now, data=data)
     return data
+
+
+# --------------------------------------------------------------------------
+# Skill management (create / edit / delete / enable / install)
+# --------------------------------------------------------------------------
+
+# Skills live at skills/<category>/<name>/SKILL.md and both path segments come
+# from the browser, so every write is gated on this before touching the disk.
+_SKILL_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+# Hermes refuses to disable these (agent.skill_utils.ESSENTIAL_SKILLS), so the
+# UI greys them out instead of offering a toggle that would silently no-op.
+ESSENTIAL_SKILLS = {"hermes-agent"}
+
+
+def _skill_dir(category: str, name: str) -> Path:
+    """Resolve skills/<category>/<name>, refusing anything that escapes it."""
+    if not _SKILL_SEGMENT.match(category or "") or not _SKILL_SEGMENT.match(name or ""):
+        raise ValueError("Invalid skill or category name - use letters, digits, dot, dash or underscore.")
+    root = SKILLS_DIR.resolve()
+    target = (root / category / name).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError("Refusing to write outside the skills directory.")
+    return target
+
+
+def skill_source(category: str, name: str) -> dict:
+    try:
+        md = _skill_dir(category, name) / "SKILL.md"
+    except ValueError as e:
+        return {"ok": False, "message": str(e)}
+    if not md.is_file():
+        return {"ok": False, "message": f"No SKILL.md for {category}/{name}."}
+    try:
+        return {"ok": True, "category": category, "name": name,
+                "content": md.read_text(encoding="utf-8", errors="replace"),
+                "path": str(md)}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
+def skill_save(category: str, name: str, content: str) -> dict:
+    """Overwrite a skill's SKILL.md.
+
+    Written to a temp file and replaced atomically so an interrupted save can
+    never leave a half-written skill that the agent would then try to load.
+    """
+    if not isinstance(content, str) or not content.strip():
+        return {"ok": False, "message": "Refusing to save an empty SKILL.md."}
+    try:
+        d = _skill_dir(category, name)
+        if not d.is_dir():
+            return {"ok": False, "message": f"{category}/{name} does not exist."}
+        md = d / "SKILL.md"
+        tmp = md.with_suffix(".md.tmp")
+        tmp.write_text(content, encoding="utf-8", newline="\n")
+        tmp.replace(md)
+        _SKILLS_CACHE["data"] = None
+        return {"ok": True, "message": f"Saved {category}/{name}."}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
+SKILL_TEMPLATE = """---
+name: {name}
+description: {description}
+version: 1.0.0
+platforms: [linux, macos, windows]
+---
+
+# {name}
+
+{description}
+
+## When to use
+
+Describe the situations where this skill should be applied.
+
+## Steps
+
+1. First step.
+2. Second step.
+"""
+
+
+def skill_create(category: str, name: str, description: str = "") -> dict:
+    try:
+        d = _skill_dir(category, name)
+    except ValueError as e:
+        return {"ok": False, "message": str(e)}
+    if d.exists():
+        return {"ok": False, "message": f"{category}/{name} already exists."}
+    try:
+        d.mkdir(parents=True, exist_ok=False)
+        (d / "SKILL.md").write_text(
+            SKILL_TEMPLATE.format(name=name, description=description.strip() or f"What {name} does."),
+            encoding="utf-8", newline="\n")
+        _SKILLS_CACHE["data"] = None
+        return {"ok": True, "message": f"Created {category}/{name}.", "category": category, "name": name}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
+def skill_delete(category: str, name: str) -> dict:
+    """Remove a skill from disk.
+
+    `hermes skills uninstall` only handles hub-installed skills, so the
+    directory is removed directly — that covers local and bundled ones too.
+    Bundled skills are reseeded by `hermes update` unless the deletion is made
+    permanent, which the response says out loud rather than pretending the
+    removal is final.
+    """
+    try:
+        d = _skill_dir(category, name)
+    except ValueError as e:
+        return {"ok": False, "message": str(e)}
+    if name in ESSENTIAL_SKILLS:
+        return {"ok": False, "message": f"'{name}' is essential to Hermes and cannot be removed."}
+    if not d.is_dir():
+        return {"ok": False, "message": f"{category}/{name} does not exist."}
+    try:
+        shutil.rmtree(d)
+        parent = d.parent
+        if parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
+        _SKILLS_CACHE["data"] = None
+        return {"ok": True, "message": f"Deleted {category}/{name}."}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
+def skill_set_enabled(name: str, enabled: bool) -> dict:
+    """Enable/disable a skill via the config's `skills.disabled` list.
+
+    There is no non-interactive CLI for this (`hermes skills config` is a
+    menu), so the list is edited directly and written back through
+    `hermes config set`, which is the same path the rest of this GUI uses.
+    """
+    if not _SKILL_SEGMENT.match(name or ""):
+        return {"ok": False, "message": "Invalid skill name."}
+    if name in ESSENTIAL_SKILLS and not enabled:
+        return {"ok": False, "message": f"'{name}' is essential to Hermes and cannot be disabled."}
+    cfg = load_config()
+    skills_cfg = cfg.get("skills") if isinstance(cfg.get("skills"), dict) else {}
+    current = skills_cfg.get("disabled")
+    # `hermes config set` stores lists as a JSON string, so a round-trip can
+    # hand back '["a","b"]' rather than a real list.
+    if isinstance(current, str):
+        try:
+            current = json.loads(current)
+        except Exception:
+            current = [current] if current.strip() else []
+    disabled = [str(x) for x in (current or []) if str(x).strip()]
+
+    if enabled:
+        new = [x for x in disabled if x != name]
+    else:
+        new = disabled + [name] if name not in disabled else disabled
+    if new == disabled:
+        _SKILLS_CACHE["data"] = None
+        return {"ok": True, "message": f"{name} already {'enabled' if enabled else 'disabled'}."}
+
+    res = run_hermes("config", "set", "skills.disabled", json.dumps(new, separators=(",", ":")))
+    if not res.get("ok"):
+        return {"ok": False, "message": res.get("message") or "Could not update skills.disabled."}
+    _SKILLS_CACHE["data"] = None
+    return {"ok": True, "message": f"{name} {'enabled' if enabled else 'disabled'}.", "disabled": new}
+
+
+def skill_install(identifier: str, category: str = "", name: str = "") -> dict:
+    """Install from a registry identifier or a direct SKILL.md URL."""
+    identifier = (identifier or "").strip()
+    if not identifier:
+        return {"ok": False, "message": "Enter a skill identifier or a SKILL.md URL."}
+    args = ["skills", "install", identifier, "--yes"]
+    if category.strip():
+        if not _SKILL_SEGMENT.match(category.strip()):
+            return {"ok": False, "message": "Invalid category name."}
+        args += ["--category", category.strip()]
+    if name.strip():
+        if not _SKILL_SEGMENT.match(name.strip()):
+            return {"ok": False, "message": "Invalid skill name."}
+        args += ["--name", name.strip()]
+    res = run_hermes(*args, timeout=180)
+    _SKILLS_CACHE["data"] = None
+    out = (res.get("stdout") or "").strip() or (res.get("stderr") or "").strip()
+    return {"ok": bool(res.get("ok")), "message": out or res.get("message") or "", "output": out}
 
 
 # --------------------------------------------------------------------------
@@ -2014,8 +2217,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send(401, b'{"error": "bad or missing token"}')
             return
 
-        if path == "/api/state":
+        if path == "/api/heartbeat":
+            note_heartbeat()
+            self._json({"ok": True})
+        elif path == "/api/state":
             self._json(build_state())
+        elif path == "/api/skills/source":
+            from urllib.parse import urlparse as _up2, parse_qs as _pq2
+            _q2 = _pq2(_up2(self.path).query)
+            self._json(skill_source((_q2.get("category") or [""])[0],
+                                    (_q2.get("name") or [""])[0]))
         elif path == "/api/skills":
             from urllib.parse import urlparse as _up, parse_qs as _pq
             _q = _pq(_up(self.path).query)
@@ -2160,7 +2371,28 @@ class Handler(BaseHTTPRequestHandler):
         body = self._body()
 
         try:
-            if path == "/api/set":
+            if path == "/api/skills/save":
+                self._json(skill_save(str(body.get("category", "")),
+                                      str(body.get("name", "")),
+                                      body.get("content") or ""))
+            elif path == "/api/skills/create":
+                self._json(skill_create(str(body.get("category", "")),
+                                        str(body.get("name", "")),
+                                        str(body.get("description", ""))))
+            elif path == "/api/skills/delete":
+                self._json(skill_delete(str(body.get("category", "")),
+                                        str(body.get("name", ""))))
+            elif path == "/api/skills/toggle":
+                self._json(skill_set_enabled(str(body.get("name", "")),
+                                             bool(body.get("enabled"))))
+            elif path == "/api/skills/install":
+                self._json(skill_install(str(body.get("identifier", "")),
+                                         str(body.get("category", "")),
+                                         str(body.get("name", ""))))
+            elif path == "/api/closing":
+                note_closing()
+                self._json({"ok": True})
+            elif path == "/api/set":
                 key, value = str(body.get("key", "")), body.get("value")
                 if not key:
                     raise ValueError("missing key")
@@ -2714,6 +2946,82 @@ def write_pid_file(port: int) -> None:
 
 
 # --------------------------------------------------------------------------
+# Browser heartbeat — shut the server down once the UI is gone
+# --------------------------------------------------------------------------
+
+# The deck is a local single-user tool, so a server with no browser attached is
+# just an orphan holding a port. The page beats every HEARTBEAT_INTERVAL and the
+# watchdog exits when the beats stop.
+#
+# Two timings, because a tab can go quiet for innocent reasons:
+#   * HEARTBEAT_GRACE is deliberately long. Browsers throttle timers in hidden
+#     tabs to roughly once a minute, so anything under ~90s would kill the
+#     server whenever the user switched tabs for a while.
+#   * CLOSING_GRACE is short and only applies after the page explicitly said it
+#     was going away (pagehide -> sendBeacon). A reload also fires pagehide, so
+#     it is a delay rather than an immediate exit: if the replacement page beats
+#     within the window, the shutdown is cancelled.
+HEARTBEAT_INTERVAL = 10.0
+HEARTBEAT_GRACE = 150.0
+CLOSING_GRACE = 10.0
+
+HEARTBEAT = {
+    "last": 0.0,        # monotonic time of the most recent beat
+    "closing_at": 0.0,  # monotonic deadline set by an explicit close signal
+    "seen": False,      # has any browser ever connected?
+    "enabled": False,
+}
+
+
+def note_heartbeat() -> None:
+    HEARTBEAT["last"] = time.monotonic()
+    HEARTBEAT["seen"] = True
+    HEARTBEAT["closing_at"] = 0.0   # a live page cancels a pending shutdown
+
+
+def note_closing() -> None:
+    """Page said it is going away. Arm a short, cancellable shutdown."""
+    HEARTBEAT["closing_at"] = time.monotonic() + CLOSING_GRACE
+
+
+def _shutdown(reason: str) -> None:
+    print()
+    print(f"  {reason}")
+    print("  bye - config deck closed.")
+    try:
+        if SERVER[0] is not None:
+            threading.Thread(target=SERVER[0].shutdown, daemon=True).start()
+    except Exception:
+        pass
+    time.sleep(0.4)
+    os._exit(0)
+
+
+def start_heartbeat_watchdog() -> None:
+    """Exit once the browser is gone. No-op until the first beat arrives.
+
+    Waiting for that first beat matters: the user may take a while to open the
+    page, and a deck started with --no-browser (or driven by curl) should never
+    be shut down by a watchdog for a UI that was never opened.
+    """
+    HEARTBEAT["enabled"] = True
+
+    def loop() -> None:
+        while True:
+            time.sleep(2.0)
+            if not HEARTBEAT["seen"]:
+                continue
+            now = time.monotonic()
+            closing_at = HEARTBEAT["closing_at"]
+            if closing_at and now >= closing_at:
+                _shutdown("Browser closed - no page reconnected.")
+            if now - HEARTBEAT["last"] > HEARTBEAT_GRACE:
+                _shutdown("No browser has checked in for %ds." % int(HEARTBEAT_GRACE))
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
+# --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
 
@@ -2722,6 +3030,8 @@ def main():
     ap = argparse.ArgumentParser(description="Hermes config web GUI")
     ap.add_argument("--port", type=int, default=8787)
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--no-auto-exit", action="store_true",
+                    help="keep running after the browser closes")
     args = ap.parse_args()
 
     HERMES_EXE = find_hermes_exe()
@@ -2774,6 +3084,9 @@ def main():
 
     if not args.no_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+        if not args.no_auto_exit:
+            print("  (closing the browser tab shuts this window down)")
+            start_heartbeat_watchdog()
 
     try:
         srv.serve_forever()

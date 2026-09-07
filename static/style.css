@@ -1683,7 +1683,7 @@ pre.codeblock {
 /* --- Skills page --- */
 .skill-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: 10px;
   margin: 4px 0 14px;
 }
@@ -1693,14 +1693,28 @@ pre.codeblock {
   border-radius: 10px;
   padding: 10px 12px;
 }
-.skill-stat-n { font-size: 20px; font-weight: 700; color: var(--ink); line-height: 1.2; }
+.skill-stat-n { font-size: 21px; font-weight: 700; color: var(--ink); line-height: 1.2; }
 .skill-stat-l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; }
+
+.skill-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 8px 0;
+  background: var(--bg);
+}
+.skill-toolbar select { min-width: 150px; }
 
 .skill-group {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 16px 0 6px;
+  margin: 18px 0 8px;
   padding-bottom: 5px;
   border-bottom: 1px solid var(--line-subtle);
 }
@@ -1719,14 +1733,28 @@ pre.codeblock {
   padding: 1px 7px;
 }
 
-.skillrow {
-  display: flex;
-  gap: 11px;
-  align-items: flex-start;
-  padding: 9px 4px;
-  border-bottom: 1px solid var(--line-subtle);
+/* Cards, not rows: with the page widened this fills the space instead of
+   stranding a long empty gutter beside 50 one-line entries. */
+.skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 10px;
 }
-.skillrow:last-child { border-bottom: none; }
+.skillcard {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.skillcard:hover { border-color: var(--line-focus); box-shadow: var(--shadow-xs); }
+.skillcard.is-off { opacity: .55; background: var(--bg-subtle); }
+.skillcard-head { display: flex; align-items: flex-start; gap: 9px; }
+.skillcard-head .tgl { margin-left: auto; flex: none; }
 .skill-emoji { font-size: 15px; flex: none; margin-top: 1px; }
 .skill-name {
   font-weight: 600;
@@ -1736,14 +1764,38 @@ pre.codeblock {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  min-width: 0;
+  word-break: break-word;
 }
 .skill-desc {
   font-size: 12.5px;
   color: var(--muted);
   line-height: 1.5;
-  margin-top: 2px;
   word-break: break-word;
   overflow-wrap: anywhere;
+  flex: 1;
+}
+.skillcard-actions {
+  display: flex;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-subtle);
+}
+.skill-act { font-size: 11.5px; padding: 3px 10px; }
+.skill-act.danger { color: var(--red); }
+.skill-act.danger:hover { background: var(--red-soft); border-color: var(--red-border); }
+button.primary.danger { background: var(--red); border-color: var(--red); }
+
+.skill-editor {
+  width: 100%;
+  min-height: 52vh;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+  tab-size: 2;
 }
 
 /* --- Collapsed reasoning ("Thinking") above an assistant reply --- */
