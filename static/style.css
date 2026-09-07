@@ -1109,26 +1109,129 @@ table.rows td.actions button { padding: 5px 11px; font-size: 12.5px; }
 /* ================================================================
    FALLBACK LIST
 ================================================================ */
+/* --- Two-column config layout (Main AI) --- */
+.cfg-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.cfg-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.cfg-col > * { margin: 0; }
+@media (max-width: 1050px) {
+  .cfg-grid { grid-template-columns: 1fr; }
+}
+
+/* --- Backup models --- */
+.fb-route {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 2px 0;
+}
+.fb-hop {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card-muted);
+  padding: 8px 12px;
+  min-width: 0;
+  max-width: 260px;
+}
+.fb-hop.is-primary { border-color: var(--gold-border); background: var(--gold-soft); }
+.fb-hop.is-empty { border-style: dashed; background: transparent; }
+.fb-hop.is-unset { border-style: dashed; }
+.fb-hop-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+.fb-hop-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.fb-arrow { align-self: center; color: var(--muted); font-size: 14px; }
+
+.fb-list { display: flex; flex-direction: column; gap: 10px; }
 .fb-item {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 12px;
   background: var(--card-muted);
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 12px 16px;
-  margin-bottom: 10px;
-  transition: all 0.15s ease;
+  padding: 12px 14px;
+  transition: border-color 0.15s ease;
 }
-.fb-item:hover { border-color: var(--gold); }
-.fb-item .num { font-weight: 700; color: var(--muted); width: 22px; font-size: 13px; }
-.fb-item .fb-main { flex: 1; font-size: 14px; min-width: 0; }
-.fb-item button { padding: 6px 11px; font-size: 12.5px; }
-.fb-empty { color: var(--muted); font-size: 14px; padding: 12px 0; }
+.fb-item:hover { border-color: var(--line-focus); }
+.fb-rank {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 3px;
+}
+/* Provider is a fixed, predictable width; the model picker takes the rest,
+   because model ids are the long, variable part. */
+.fb-fields {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  align-items: flex-end;
+}
+.fb-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 0 0 210px; }
+.fb-field-model { flex: 1 1 auto; }
+.fb-field-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.fb-field select { width: 100%; }
+.fb-item-actions { display: flex; gap: 4px; flex: none; margin-bottom: 3px; }
+.fb-move { padding: 5px 9px; font-size: 12.5px; line-height: 1; }
+.fb-move:disabled { opacity: .35; cursor: not-allowed; }
+.fb-remove { color: var(--red); }
+.fb-remove:hover { background: var(--red-soft); border-color: var(--red-border); }
 
-.fb-line { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; flex: 1; }
-.fb-prov { flex: 0 0 220px; min-width: 0; }
-.fb-line .mp { flex: 1 1 260px; }
+.fb-empty {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 18px;
+  background: var(--bg-subtle);
+}
+.fb-empty-icon { font-size: 24px; line-height: 1; flex: none; }
+.fb-empty-title { font-weight: 600; font-size: 14px; color: var(--ink); }
+.fb-empty-sub { font-size: 13px; color: var(--muted); margin-top: 3px; line-height: 1.55; max-width: 60ch; }
+
+.fb-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-subtle);
+}
+
+@media (max-width: 780px) {
+  .fb-item { align-items: stretch; flex-wrap: wrap; }
+  .fb-fields { flex-wrap: wrap; }
+  .fb-field { flex: 1 1 100%; }
+  .fb-item-actions { margin-left: auto; }
+}
 
 /* ================================================================
    CUSTOM PROVIDERS & MCP ACCORDIONS

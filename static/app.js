@@ -614,7 +614,7 @@ async function showPage(name) {
   page.classList.toggle("providers-page", name === "providers");
   page.classList.toggle("memory-page", name === "memory");
   page.classList.toggle("automations-page", name === "automations");
-  page.classList.toggle("wide-page", name === "home" || name === "providers" || name === "chat" || name === "tools" || name === "memory" || name === "automations" || name === "skills");
+  page.classList.toggle("wide-page", name === "home" || name === "providers" || name === "chat" || name === "tools" || name === "memory" || name === "automations" || name === "skills" || name === "model" || name === "fallback");
   page.replaceChildren(el("div", { class: "loading" }, "Loading…"));
   if (PAGES[name]) {
     try {
@@ -1370,10 +1370,10 @@ PAGES.model = async function (page) {
     el("h1", { class: "pagetitle" }, "Main AI"),
     el("p", { class: "pagesub" }, "Configure your primary agent model, verify provider connectivity, manage model aliases, and run diagnostics."),
     heroCard,
-    modelCard,
-    keyCardContainer,
-    alCard,
-    diagCard
+    el("div", { class: "cfg-grid" },
+      el("div", { class: "cfg-col" }, modelCard, alCard),
+      el("div", { class: "cfg-col" }, keyCardContainer, diagCard)
+    )
   );
 };
 
@@ -2052,7 +2052,7 @@ PAGES.providers = async function (page) {
 /* ---------------- BACKUP MODELS (FALLBACK) ---------------- */
 PAGES.fallback = async function (page) {
   await loadState();
-  
+
   // Parse rows defensively to avoid any empty provider or model issues
   const rows = (STATE.fallback_chain || []).map(e => {
     let p = e.provider || "";
@@ -2065,28 +2065,61 @@ PAGES.fallback = async function (page) {
     return { provider: p || "openrouter", model: m };
   });
 
+  const mainModel = (STATE.model || {}).default || "";
+  const mainProv = (STATE.model || {}).provider || "";
+
   const pickers = [];
-  const listDiv = el("div");
+  const listDiv = el("div", { class: "fb-list" });
+  const routeStrip = el("div", { class: "fb-route" });
+
+  function provMeta(name) {
+    const bi = (typeof BUILTIN_PROVIDERS_INFO !== "undefined" ? BUILTIN_PROVIDERS_INFO : []).find(x => x.name === name);
+    const cp = (STATE.custom_providers || []).find(p => p.name === name);
+    return { icon: cp ? "🔌" : (bi ? bi.icon : "🔌"), label: cp ? cp.name : (bi ? (bi.label || name) : name) };
+  }
+
+  // The order IS the feature here, but it was only implied by the row
+  // positions. This strip shows the actual attempt path at a glance so you can
+  // see what runs first without reading every dropdown.
+  function drawRoute() {
+    routeStrip.replaceChildren();
+    const hop = (label, sub, cls) => el("div", { class: "fb-hop " + cls },
+      el("div", { class: "fb-hop-label" }, label),
+      el("div", { class: "fb-hop-sub" }, sub));
+    routeStrip.append(hop(mainModel || "(no main model)", provMeta(mainProv).label || "primary", "is-primary"));
+    if (!rows.length) {
+      routeStrip.append(el("span", { class: "fb-arrow" }, "→"),
+        el("div", { class: "fb-hop is-empty" },
+          el("div", { class: "fb-hop-label" }, "Stops here"),
+          el("div", { class: "fb-hop-sub" }, "no backup armed")));
+      return;
+    }
+    rows.forEach((r, i) => {
+      routeStrip.append(el("span", { class: "fb-arrow" }, "→"),
+        hop(r.model || "(unset)", provMeta(r.provider).label, r.model ? "" : "is-unset"));
+    });
+  }
 
   function draw() {
     listDiv.replaceChildren();
     pickers.length = 0;
     if (!rows.length) {
-      listDiv.append(el("p", { class: "fb-empty" },
-        "No backup models configured. If your main model fails (rate limit, server downtime), Hermes will stop. Add one or more backup models below."));
+      listDiv.append(el("div", { class: "fb-empty" },
+        el("div", { class: "fb-empty-icon" }, "🪂"),
+        el("div", {},
+          el("div", { class: "fb-empty-title" }, "No backup models armed"),
+          el("div", { class: "fb-empty-sub" },
+            "If your main model rate-limits or its server goes down, Hermes stops. Add a backup on a different provider so it can keep going."))));
     }
     rows.forEach((r, i) => {
-      // Ensure r.provider is guaranteed to be in the option list
       const allNames = providerNames(r.provider);
-      const provSel = el("select", { style: "min-width:180px;" });
-      
+      const provSel = el("select", {});
+
       allNames.forEach(p => {
-        const bi = (typeof BUILTIN_PROVIDERS_INFO !== "undefined" ? BUILTIN_PROVIDERS_INFO : []).find(x => x.name === p);
-        const icon = bi ? bi.icon : "🔌";
-        const label = bi ? `${icon} ${bi.label || p}` : `${icon} ${p}`;
-        provSel.append(el("option", { value: p }, label));
+        const meta = provMeta(p);
+        provSel.append(el("option", { value: p }, `${meta.icon} ${meta.label}`));
       });
-      
+
       provSel.value = r.provider || "openrouter";
       if (!provSel.value && allNames.length) {
         provSel.selectedIndex = 0;
@@ -2097,6 +2130,7 @@ PAGES.fallback = async function (page) {
         r.provider = provSel.value;
         const pk = pickers[i];
         if (pk) pk.setSuggestions(modelsFor(r.provider));
+        drawRoute();
       };
 
       function resolveProvUrl(pName) {
@@ -2112,24 +2146,30 @@ PAGES.fallback = async function (page) {
         initialModels: modelsFor(r.provider),
         getProvider: () => ({ provider: r.provider, base_url: resolveProvUrl(r.provider) }),
       });
-      pk.input.onchange = () => { r.model = pk.input.value.trim(); };
+      pk.input.onchange = () => { r.model = pk.input.value.trim(); drawRoute(); };
       pickers[i] = pk;
 
+      const up = el("button", { class: "ghost fb-move", title: "Move up", disabled: i === 0,
+        onclick: () => { if (i > 0) { const t = rows[i - 1]; rows[i - 1] = rows[i]; rows[i] = t; draw(); drawRoute(); } } }, "↑");
+      const down = el("button", { class: "ghost fb-move", title: "Move down", disabled: i === rows.length - 1,
+        onclick: () => { if (i < rows.length - 1) { const t = rows[i + 1]; rows[i + 1] = rows[i]; rows[i] = t; draw(); drawRoute(); } } }, "↓");
+      const rm = el("button", { class: "ghost fb-move fb-remove", title: "Remove this backup",
+        onclick: () => { rows.splice(i, 1); draw(); drawRoute(); } }, "✕");
+
       listDiv.append(el("div", { class: "fb-item" },
-        el("span", { class: "num" }, String(i + 1) + "."),
-        el("div", { class: "fb-line" },
-          el("div", { class: "fb-prov" }, provSel),
-          pk.root
+        el("div", { class: "fb-rank", title: "Attempt order" }, String(i + 1)),
+        el("div", { class: "fb-fields" },
+          el("label", { class: "fb-field" },
+            el("span", { class: "fb-field-label" }, "Provider"), provSel),
+          el("label", { class: "fb-field fb-field-model" },
+            el("span", { class: "fb-field-label" }, "Model"), pk.root)
         ),
-        el("div", { class: "btnrow", style: "margin:0" },
-          el("button", { class: "ghost", title: "Move up", onclick: () => { if (i > 0) { const t = rows[i - 1]; rows[i - 1] = rows[i]; rows[i] = t; draw(); } } }, "↑"),
-          el("button", { class: "ghost", title: "Move down", onclick: () => { if (i < rows.length - 1) { const t = rows[i + 1]; rows[i + 1] = rows[i]; rows[i] = t; draw(); } } }, "↓"),
-          el("button", { class: "danger", onclick: () => { rows.splice(i, 1); draw(); } }, "Remove")
-        ),
+        el("div", { class: "fb-item-actions" }, up, down, rm)
       ));
     });
   }
   draw();
+  drawRoute();
 
   const sb = saveBtn(null, async () => {
     const entries = rows.filter(r => r.provider && r.model).map(r => ({ provider: r.provider, model: r.model }));
@@ -2138,16 +2178,17 @@ PAGES.fallback = async function (page) {
     return r;
   });
 
+  const addBtn = el("button", { class: "primary" }, "＋ Add a backup model");
+  addBtn.onclick = () => { rows.push({ provider: "openrouter", model: "" }); draw(); drawRoute(); };
+
   page.replaceChildren(
     el("h1", { class: "pagetitle" }, "Backup Models"),
     el("p", { class: "pagesub" }, "If your main AI fails or hits rate limits, Hermes automatically falls back to these models in order, top to bottom."),
-    card("Backup Order & Priority", "Models are attempted sequentially. You can change order or add alternative providers.",
+    card("Failover Route", "The order Hermes attempts models in, starting from your main AI.", routeStrip),
+    card("Backup Order & Priority", "Models are attempted sequentially. Reorder with the arrows, or add alternatives on other providers.",
       listDiv,
-      el("div", { class: "btnrow" },
-        el("button", { onclick: () => { rows.push({ provider: "openrouter", model: "" }); draw(); } }, "+ Add a backup model"),
-        el("span", { style: "flex:1" }),
-        sb.btn, sb.status),
-    ),
+      el("div", { class: "fb-bar" }, addBtn, el("span", { style: "flex:1" }), sb.btn, sb.status)
+    )
   );
 };
 
