@@ -1243,6 +1243,31 @@ PAGES.model = async function (page) {
     placeholder: "Leave empty for model default, or e.g. 128000"
   });
 
+  const maxTokIn = el("input", {
+    type: "number",
+    value: m.max_tokens || "",
+    placeholder: "Leave empty to inherit, or e.g. 8192"
+  });
+
+  // Left empty, Hermes may inherit an output cap from a built-in table keyed on
+  // the model NAME rather than the endpoint, and reserve more of the window
+  // than the server actually has. The server resolves what will really be sent.
+  const budgetBanner = el("div");
+  async function refreshBudget() {
+    budgetBanner.replaceChildren();
+    let b;
+    try { b = await api("/api/model/output-budget"); } catch { return; }
+    if (!b || !b.level || !b.message) return;
+    budgetBanner.append(el("div", { class: "system-alert-banner" + (b.level === "warn" ? " is-warn" : "") },
+      el("div", { class: "sab-icon" }, b.level === "warn" ? "⚠️" : "🛑"),
+      el("div", { class: "sab-body" },
+        el("div", { class: "sab-title" }, "Output reservation leaves too little room for input"),
+        el("div", { class: "sab-desc" }, b.message)
+      )
+    ));
+  }
+  refreshBudget();
+
   const picker = modelPicker({
     value: m.default || "",
     placeholder: "e.g. anthropic/claude-3.7-sonnet — type freely, or open the list with 🔍",
@@ -1295,6 +1320,13 @@ PAGES.model = async function (page) {
       steps.push(["model.context_length", null]);
     }
 
+    const maxTokVal = parseInt(maxTokIn.value.trim(), 10);
+    if (!isNaN(maxTokVal) && maxTokVal > 0) {
+      if (maxTokVal !== m.max_tokens) steps.push(["model.max_tokens", maxTokVal]);
+    } else if (m.max_tokens) {
+      steps.push(["model.max_tokens", null]);
+    }
+
     if (!steps.length) return { ok: true };
     let last;
     for (const [k, v] of steps) {
@@ -1312,6 +1344,8 @@ PAGES.model = async function (page) {
     field("Model identifier", picker.root, "Open the 🔍 list to load this provider's live model catalog. Test model verifies reply capability, and Benchmark measures tokens per second."),
     field("Server address (base URL)", urlIn, "Only required for custom endpoints or proxies; official providers use their standard cloud endpoints automatically."),
     field("Context window limit (optional)", ctxIn, "Override maximum token context length if needed by your model or workflow."),
+    field("Max output tokens (optional)", maxTokIn, "How much of the context window is reserved for the reply. Left empty, Hermes picks a value from the model name — which can exceed what a self-hosted server actually allows, making every request fail as a context-length error. 8192 is a safe default."),
+    budgetBanner,
     el("div", { class: "savebar", style: "margin-top:18px" }, sb.btn, sb.status)
   );
 

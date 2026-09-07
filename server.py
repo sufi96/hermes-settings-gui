@@ -642,6 +642,7 @@ def build_state() -> dict:
             "base_url": model.get("base_url"),
             "api_key": resolve_env_ref(model.get("api_key")),
             "context_length": model.get("context_length"),
+            "max_tokens": model.get("max_tokens"),
             "aliases": model.get("aliases") or {},
         },
         "custom_providers": providers_out,
@@ -1568,6 +1569,40 @@ def _session_stats(session_id: str, since_ts: float | None = None) -> dict:
     return out
 
 
+# Turn results that Hermes hands back as `completed=False, partial=True`
+# (agent/conversation_loop.py::_compression_deferred_result). It persists the
+# user's message but never writes these as an assistant row, so the deck showed
+# the notice live and then lost it on reload — leaving the question looking
+# unanswered and hiding the fact that anything went wrong at all.
+_UNPERSISTED_NOTICE_PREFIXES = (
+    "Context compression is temporarily paused",
+    "Context compression is already running",
+    "Context length exceeded: compression could not reduce",
+)
+
+
+def _persist_notice(session_id: str | None, text: str) -> None:
+    """Write a transient turn notice into the transcript, once."""
+    text = (text or "").strip()
+    if not session_id or not text:
+        return
+    if not text.startswith(_UNPERSISTED_NOTICE_PREFIXES):
+        return
+    try:
+        with sqlite3.connect(str(STATE_DB), timeout=5) as con:
+            row = con.execute(
+                "SELECT content FROM messages WHERE session_id=? AND role='assistant' "
+                "ORDER BY id DESC LIMIT 1", (session_id,)).fetchone()
+            if row and (row[0] or "").strip() == text:
+                return  # already recorded
+            con.execute(
+                "INSERT INTO messages (session_id, role, content, timestamp, active) "
+                "VALUES (?, 'assistant', ?, ?, 1)", (session_id, text, time.time()))
+            con.commit()
+    except Exception:
+        pass
+
+
 def chat_send(message: str, resume_id: str | None = None) -> dict:
     """One agent turn. Returns {ok, reply, session_id, duration_s} plus live
     stats pulled from the Hermes session store right after the turn:
@@ -1609,6 +1644,7 @@ def chat_send(message: str, resume_id: str | None = None) -> dict:
 
         result = {"ok": True, "reply": out, "session_id": session_id,
                   "duration_s": round(time.time() - CHAT_STATE["turn_started"], 1)}
+        _persist_notice(session_id, out)
         # authoritative stats from the session store (Hermes writes them itself)
         if session_id:
             time.sleep(0.2)  # let the writer commit
@@ -1823,6 +1859,119 @@ def chat_stats(session_id: str | None) -> dict:
                     out["context_length"] = ctx
             except Exception:
                 pass
+    return out
+
+
+def resolve_output_budget() -> dict:
+    """What Hermes will actually reserve for OUTPUT on the next request.
+
+    Mirrors the agent's own resolution order
+    (``agent/transports/chat_completions.py``): an explicit ``model.max_tokens``
+    wins, and only when it is unset does the Anthropic-compatible fallback in
+    ``agent/chat_completion_helpers.py`` inject a per-model cap.
+
+    That fallback is gated on the *model name*, never the URL, so a self-hosted
+    endpoint serving a model whose id merely contains ``qwen3`` inherits
+    DashScope's 65,536-token output cap. On a 64K server the reservation eats
+    the whole window, the endpoint is left with zero room for input, and every
+    request fails with a context-length 400 no matter how short the prompt —
+    which Hermes then misreads as context pressure and answers with a
+    compression notice instead of the real cause. Surfacing the number is the
+    only way that misconfiguration is visible before it bites.
+    """
+    cfg = load_config()
+    model_cfg = cfg.get("model") or {}
+    model = model_cfg.get("default") or ""
+    provider = model_cfg.get("provider") or ""
+    base_url = model_cfg.get("base_url") or ""
+    out: dict = {"ok": True, "model": model, "provider": provider,
+                 "configured": None, "effective": None, "source": "provider_default"}
+
+    raw = model_cfg.get("max_tokens")
+    if isinstance(raw, bool):
+        raw = None
+    try:
+        if raw is not None and int(raw) > 0:
+            out["configured"] = int(raw)
+    except (TypeError, ValueError):
+        pass
+
+    try:
+        sys.path.insert(0, str(AGENT_DIR))
+        from agent.model_metadata import get_model_context_length
+        ctx = get_model_context_length(
+            model,
+            base_url,
+            resolve_env_value(model_cfg.get("api_key", "")) if isinstance(model_cfg.get("api_key"), str) else "",
+            model_cfg.get("context_length"),
+            provider,
+            cfg.get("custom_providers"),
+        )
+        if isinstance(ctx, int) and ctx > 0:
+            out["context_length"] = ctx
+    except Exception:
+        pass
+
+    if out["configured"] is not None:
+        out["effective"] = out["configured"]
+        out["source"] = "config"
+    else:
+        # Replicate the agent's model-name gate exactly, so the number shown
+        # here is the number that goes on the wire.
+        try:
+            sys.path.insert(0, str(AGENT_DIR))
+            from agent.anthropic_adapter import (
+                _get_anthropic_max_output,
+                _ANTHROPIC_OUTPUT_LIMITS,
+            )
+            norm = (model or "").lower().replace(".", "-")
+            if any(k in norm for k in _ANTHROPIC_OUTPUT_LIMITS):
+                out["effective"] = int(_get_anthropic_max_output(model))
+                out["source"] = "anthropic_fallback"
+        except Exception:
+            pass
+
+    ctx = out.get("context_length")
+    eff = out.get("effective")
+    if isinstance(ctx, int) and isinstance(eff, int):
+        out["input_headroom"] = ctx - eff
+
+    # Two independent checks. The headroom one only fires when the resolved
+    # window can be trusted; for a self-hosted endpoint it often cannot
+    # (models.dev/name metadata reported 131,072 for a vLLM server actually
+    # serving 65,536), which is precisely the case that has to be caught. So an
+    # inherited reservation on a self-hosted endpoint is flagged on its own,
+    # without relying on the window at all.
+    is_custom = any(
+        isinstance(p, dict) and p.get("name") == provider
+        for p in (cfg.get("custom_providers") or [])
+    ) or bool(base_url)
+
+    if isinstance(ctx, int) and isinstance(eff, int) and ctx - eff <= 0:
+        out["level"] = "error"
+        out["message"] = (
+            f"The output reservation ({eff:,}) fills the entire {ctx:,}-token "
+            "context window, leaving nothing for input. Every request will fail "
+            "with a context-length error regardless of prompt size."
+        )
+    elif out["source"] == "anthropic_fallback" and is_custom and eff and eff >= 32768:
+        out["level"] = "warn"
+        out["message"] = (
+            f"Nothing here sets an output limit, so Hermes falls back to "
+            f"{eff:,} tokens — inherited automatically because the model id "
+            f"‘{model}’ matches a built-in output-cap entry, not because your "
+            "endpoint asked for it. If this server's real context window is "
+            f"{eff:,} or less, it will be left with no room for input and every "
+            "request fails with a context-length error — which Hermes then "
+            "reports as a compression problem rather than a settings one. "
+            "Pin an explicit limit (8192 is a safe default)."
+        )
+    elif isinstance(ctx, int) and isinstance(eff, int) and ctx - eff < ctx // 4:
+        out["level"] = "warn"
+        out["message"] = (
+            f"The output reservation ({eff:,}) leaves only {ctx - eff:,} of "
+            f"{ctx:,} tokens for input. Long conversations will fail early."
+        )
     return out
 
 
@@ -2350,6 +2499,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(chat_history(self._qs().get("session", "")))
         elif path == "/api/chat/stats":
             self._json(chat_stats(self._qs().get("session", "")))
+        elif path == "/api/model/output-budget":
+            self._json(resolve_output_budget())
         elif path == "/api/backups":
             pats = ["hermes-backup-*.zip"]
             files = []

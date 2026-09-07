@@ -3473,6 +3473,15 @@ button.primary.danger { background: var(--red); border-color: var(--red); }
   flex: none;
 }
 
+/* Amber variant — a misconfiguration that will bite, not one already failing. */
+.system-alert-banner.is-warn {
+  background: var(--gold-soft);
+  border-color: var(--gold-border);
+}
+.system-alert-banner.is-warn .sab-title {
+  color: var(--gold-text);
+}
+
 .req-checklist {
   display: flex;
   flex-direction: column;
