@@ -225,6 +225,64 @@ def load_config() -> dict:
         return {"_gui_error": f"config.yaml parse error: {e}"}
 
 
+# `hermes config set` only coerces bools/numbers — a JSON list/dict passed to it
+# is stored as a plain string, which both the agent and this UI then ignore.
+# Structured values are therefore written straight into config.yaml instead.
+LIST_KEYS = ("custom_providers", "fallback_providers", "skills.disabled")
+
+
+def set_config_value(key: str, value) -> dict:
+    """Write a structured value at a (possibly dotted) key in config.yaml atomically."""
+    try:
+        text = CONFIG_PATH.read_text(encoding="utf-8") if CONFIG_PATH.exists() else ""
+        cfg = yaml.safe_load(text) or {}
+        if not isinstance(cfg, dict):
+            raise ValueError("config.yaml is not a mapping")
+        node, *path = cfg, *key.split(".")
+        for part in path[:-1]:
+            if not isinstance(node.get(part), dict):
+                node[part] = {}
+            node = node[part]
+        node[path[-1]] = value
+        tmp = CONFIG_PATH.with_suffix(".yaml.tmp")
+        tmp.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True),
+                       encoding="utf-8")
+        if CONFIG_PATH.exists():
+            shutil.copymode(CONFIG_PATH, tmp)  # config holds keys: keep 0600
+        else:
+            os.chmod(tmp, 0o600)
+        tmp.replace(CONFIG_PATH)
+        return {"ok": True, "stdout": "", "stderr": "", "message": f"Saved {key}."}
+    except Exception as e:
+        return {"ok": False, "stdout": "", "stderr": "", "message": f"Could not save {key}: {e}"}
+
+
+def repair_list_keys() -> list[str]:
+    """Turn list keys an older save left as JSON strings back into lists.
+
+    The original file is copied to config.yaml.bak.<timestamp> first.
+    """
+    cfg = load_config()
+    fixed = []
+    for key in LIST_KEYS:
+        node = cfg
+        for part in key.split("."):
+            node = node.get(part) if isinstance(node, dict) else None
+        if not isinstance(node, str):
+            continue
+        try:
+            value = json.loads(node)
+        except Exception:
+            continue
+        if isinstance(value, list):
+            if not fixed:
+                shutil.copy2(CONFIG_PATH, CONFIG_PATH.with_name(
+                    "config.yaml.bak." + time.strftime("%Y%m%d_%H%M%S")))
+            if set_config_value(key, value)["ok"]:
+                fixed.append(key)
+    return fixed
+
+
 def load_env_file() -> dict:
     """Parse .env into an ordered dict (raw values, never sent to the client)."""
     entries: dict[str, str] = {}
@@ -1425,7 +1483,7 @@ def skill_set_enabled(name: str, enabled: bool) -> dict:
         _SKILLS_CACHE["data"] = None
         return {"ok": True, "message": f"{name} already {'enabled' if enabled else 'disabled'}."}
 
-    res = run_hermes("config", "set", "skills.disabled", json.dumps(new, separators=(",", ":")))
+    res = set_config_value("skills.disabled", new)
     if not res.get("ok"):
         return {"ok": False, "message": res.get("message") or "Could not update skills.disabled."}
     _SKILLS_CACHE["data"] = None
@@ -2586,11 +2644,12 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("missing key")
                 # structured values (lists/dicts/numbers/bools) arrive typed;
                 # strings must be passed through as single CLI args.
+                sval = "" if value is None else str(value)
                 if isinstance(value, (dict, list)):
-                    sval = json.dumps(value, separators=(",", ":"))
-                else:
-                    sval = "" if value is None else str(value)
-                if sval == "":
+                    if not re.fullmatch(r"[A-Za-z0-9_.\-]+", key):
+                        raise ValueError("invalid key format")
+                    self._cli_result(set_config_value(key, value))
+                elif sval == "":
                     self._cli_result(run_hermes("config", "unset", key))
                 elif re.fullmatch(r"[A-Za-z0-9_.\-]+", key):
                     self._cli_result(run_hermes("config", "set", key, sval))
@@ -2606,9 +2665,10 @@ class Handler(BaseHTTPRequestHandler):
                     full_key = f"{section}.{k}"
                     if v is None or v == "":
                         res = run_hermes("config", "unset", full_key)
+                    elif isinstance(v, (dict, list)):
+                        res = set_config_value(full_key, v)
                     else:
-                        sval = json.dumps(v, separators=(",", ":")) if isinstance(v, (dict, list)) else str(v)
-                        res = run_hermes("config", "set", full_key, sval)
+                        res = run_hermes("config", "set", full_key, str(v))
                     if not res.get("ok"):
                         self._cli_result(res)
                         return
@@ -2636,17 +2696,14 @@ class Handler(BaseHTTPRequestHandler):
                             ent["base_url"] = str(e["base_url"])
                         clean.append(ent)
                 if clean:
-                    sval = json.dumps(clean, separators=(",", ":"))
-                    self._cli_result(run_hermes("config", "set", "fallback_providers", sval))
+                    self._cli_result(set_config_value("fallback_providers", clean))
                 else:
                     self._cli_result(run_hermes("config", "unset", "fallback_providers"))
             elif path == "/api/providers":
                 providers = body.get("providers", [])
                 if not isinstance(providers, list):
                     raise ValueError("providers must be a list")
-                self._cli_result(run_hermes(
-                    "config", "set", "custom_providers",
-                    json.dumps(providers, separators=(",", ":")), timeout=90))
+                self._cli_result(set_config_value("custom_providers", providers))
             elif path == "/api/env/set":
                 key, value = str(body.get("key", "")), str(body.get("value", ""))
                 if not re.fullmatch(r"[A-Za-z0-9_]+", key) or not key.isupper():
@@ -3223,6 +3280,8 @@ def main():
     args = ap.parse_args()
 
     HERMES_EXE = find_hermes_exe()
+    for key in repair_list_keys():
+        print(f"  [FIXED] {key} was saved as text; restored it as a list (backup kept).")
     reqs = check_system_requirements()
 
     try:
