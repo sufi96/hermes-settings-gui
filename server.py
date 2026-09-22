@@ -1480,7 +1480,7 @@ def parse_tools_output(text: str) -> list[dict]:
 
 
 # --------------------------------------------------------------------------
-# Chat bridge — run real Hermes turns via `hermes chat -q -Q --query-file -`
+# Chat bridge — run real Hermes turns via `hermes chat -Q --query=<msg>`
 # stdout = final reply, stderr = banners + `session_id: <id>` line.
 # --------------------------------------------------------------------------
 
@@ -1613,13 +1613,14 @@ def chat_send(message: str, resume_id: str | None = None) -> dict:
     CHAT_STATE["busy"] = True
     CHAT_STATE["turn_started"] = time.time()
     try:
-        args = [HERMES_EXE, "chat", "-Q", "--query-file", "-"]
+        # "--query=" form so a message starting with "-" is not parsed as a flag
+        args = [HERMES_EXE, "chat", "-Q", f"--query={message}"]
         if resume_id:
             args += ["--resume", resume_id]
         try:
             r = subprocess.run(
                 args,
-                input=message,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
