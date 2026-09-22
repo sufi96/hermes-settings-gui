@@ -125,8 +125,12 @@ hermes-settings-gui/
 │   ├── Hermes Settings Windows.bat
 │   └── create_shortcut.ps1
 ├── linux/
-│   └── hermes-gui.sh
+│   ├── Hermes Settings Linux.sh
+│   ├── Hermes Settings Linux.desktop
+│   ├── start.sh
+│   └── stop_previous.sh
 ├── start.bat              # One-click Windows launcher
+├── start.sh               # One-click Linux/macOS launcher
 ├── .gitignore
 └── README.md
 ```
@@ -150,8 +154,9 @@ start.bat
 
 #### Linux / macOS
 ```bash
-python3 server.py
+./start.sh
 ```
+(or `python3 server.py` directly)
 
 The server will perform pre-flight system diagnostics, generate a secure session token, bind to `127.0.0.1:8787`, and automatically open your default browser.
 
